@@ -283,6 +283,9 @@ Use /help to see all available commands.
     
     async def help_command(update, context):
         """Handle the /help command"""
+        user_id = update.effective_user.id
+        is_admin = user_id in ADMIN_IDS
+        
         help_text = """
 📚 **Available Commands:**
 
@@ -291,7 +294,18 @@ Use /help to see all available commands.
 /browse - Browse course materials
 /search <query> - Search for files
 /notifications - Manage notification settings
-
+/stats - View your download statistics
+"""
+        
+        if is_admin:
+            help_text += """
+**Admin Commands:**
+/admin_stats - View bot statistics
+/check_now - Manually check for new files
+/dbinfo - View database connection info
+"""
+        
+        help_text += """
 **Notifications:**
 Get alerts when new files are added to the drive!
 The bot checks every 2 days automatically.
@@ -671,7 +685,9 @@ The bot checks every 2 days automatically.
                             if file_content:
                                 # Use file path if available, otherwise just name
                                 arc_name = file.get('path', file['name'])
-                                zip_file.writestr(arc_name, file_content.read())
+                                # Read the content as bytes from BytesIO
+                                file_bytes = file_content.getvalue()
+                                zip_file.writestr(arc_name, file_bytes)
                         except Exception as e:
                             logger.warning(f"Failed to add {file['name']} to ZIP: {e}")
                 
@@ -902,8 +918,50 @@ The bot checks every 2 days automatically.
         except Exception as e:
             await update.message.reply_text(f"❌ Error fetching stats: {str(e)}")
     
+    async def dbinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /dbinfo command - show database connection info (Admin only)"""
+        user_id = update.effective_user.id
+        if user_id not in ADMIN_IDS:
+            await update.message.reply_text("⛔ You are not authorized to use this command.")
+            return
+        
+        if not db:
+            await update.message.reply_text("❌ Database not available.")
+            return
+        
+        try:
+            info_text = f"🗄️ **Database Information**\n\n"
+            info_text += f"**Type:** {db.db_type.upper()}\n"
+            info_text += f"**Connected:** {'✅ Yes' if db.connection else '❌ No'}\n"
+            
+            if db.db_type == 'postgresql':
+                # Get PostgreSQL version
+                cursor = db.connection.cursor()
+                cursor.execute("SELECT version();")
+                version = cursor.fetchone()
+                pg_version = version['version'].split(',')[0] if version else 'Unknown'
+                info_text += f"**Version:** {pg_version}\n"
+                
+                # Get database name
+                cursor.execute("SELECT current_database();")
+                dbname = cursor.fetchone()
+                info_text += f"**Database:** {dbname['current_database'] if dbname else 'Unknown'}\n"
+                
+                # Test a simple query
+                cursor.execute("SELECT COUNT(*) as count FROM users")
+                user_count = cursor.fetchone()['count']
+                info_text += f"\n**Connection Test:** ✅ Success\n"
+                info_text += f"**Users in DB:** {user_count}\n"
+            else:
+                info_text += f"**Path:** {db.db_path}\n"
+            
+            await update.message.reply_text(info_text, parse_mode='Markdown')
+        except Exception as e:
+            await update.message.reply_text(f"❌ Database Error:\n{str(e)}")
+    
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("admin_stats", admin_stats_command))
+    application.add_handler(CommandHandler("dbinfo", dbinfo_command))
     application.add_handler(CommandHandler("notifications", notifications_command))
     application.add_handler(CommandHandler("check_now", check_now_command))
     
