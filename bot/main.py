@@ -657,6 +657,15 @@ The bot checks every 2 days automatically.
                 
                 # Log download in database
                 if db:
+                    # Ensure user exists before logging download
+                    user = query.from_user
+                    db.add_user(
+                        user_id=user.id,
+                        username=user.username,
+                        first_name=user.first_name,
+                        last_name=user.last_name,
+                        is_admin=user.id in ADMIN_IDS
+                    )
                     db.log_download(query.from_user.id, folder_id, 'folder_zip')
                 
                 await status_msg.delete()
@@ -714,6 +723,15 @@ The bot checks every 2 days automatically.
                         
                         # Log download in database
                         if db:
+                            # Ensure user exists before logging download
+                            user = query.from_user
+                            db.add_user(
+                                user_id=user.id,
+                                username=user.username,
+                                first_name=user.first_name,
+                                last_name=user.last_name,
+                                is_admin=user.id in ADMIN_IDS
+                            )
                             db.log_download(query.from_user.id, file_id, 'individual')
                         
                         await status_msg.delete()
