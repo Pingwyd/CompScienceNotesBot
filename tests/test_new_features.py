@@ -1,6 +1,6 @@
 """
 Test Suite for New Bot Features
-Tests: Favorites, Recent Downloads, Queue
+Tests: Recent Downloads, Queue
 
 Run with: pytest tests/test_new_features.py -v
 """
@@ -33,103 +33,6 @@ class TestDatabase:
         
         yield database
         database.close()
-    
-    # ===== FAVORITES TESTS =====
-    
-    def test_add_favorite(self, db):
-        """Test adding a file to favorites"""
-        # Add a test user first
-        db.add_user(12345, "Test", "User", "testuser")
-        
-        # Add favorite
-        result = db.add_favorite(
-            user_id=12345,
-            file_id="file123",
-            file_name="test.pdf",
-            file_path="/Documents/test.pdf",
-            is_folder=False
-        )
-        assert result is True
-        
-        # Verify it's in favorites
-        favorites = db.get_favorites(12345)
-        assert len(favorites) == 1
-        assert favorites[0]['file_name'] == "test.pdf"
-        assert favorites[0]['is_folder'] == 0  # SQLite stores False as 0
-    
-    def test_add_duplicate_favorite(self, db):
-        """Test adding the same favorite twice (should not duplicate)"""
-        db.add_user(12345, "Test", "User", "testuser")
-        
-        # Add same favorite twice
-        db.add_favorite(12345, "file123", "test.pdf", "/test.pdf", False)
-        db.add_favorite(12345, "file123", "test.pdf", "/test.pdf", False)
-        
-        # Should only have one entry
-        favorites = db.get_favorites(12345)
-        assert len(favorites) == 1
-    
-    def test_remove_favorite(self, db):
-        """Test removing a favorite"""
-        db.add_user(12345, "Test", "User", "testuser")
-        db.add_favorite(12345, "file123", "test.pdf", "/test.pdf", False)
-        
-        # Remove it
-        result = db.remove_favorite(12345, "file123")
-        assert result is True
-        
-        # Verify it's gone
-        favorites = db.get_favorites(12345)
-        assert len(favorites) == 0
-    
-    def test_is_favorite(self, db):
-        """Test checking if file is favorited"""
-        db.add_user(12345, "Test", "User", "testuser")
-        
-        # Not favorited yet
-        assert db.is_favorite(12345, "file123") is False
-        
-        # Add to favorites
-        db.add_favorite(12345, "file123", "test.pdf", "/test.pdf", False)
-        
-        # Now it should be favorited
-        assert db.is_favorite(12345, "file123") is True
-    
-    def test_favorites_multiple_users(self, db):
-        """Test that favorites are user-specific"""
-        db.add_user(12345, "User", "One", "user1")
-        db.add_user(67890, "User", "Two", "user2")
-        
-        # Each user adds their own favorite
-        db.add_favorite(12345, "file1", "user1.pdf", "/user1.pdf", False)
-        db.add_favorite(67890, "file2", "user2.pdf", "/user2.pdf", False)
-        
-        # Each user should only see their own
-        user1_favs = db.get_favorites(12345)
-        user2_favs = db.get_favorites(67890)
-        
-        assert len(user1_favs) == 1
-        assert len(user2_favs) == 1
-        assert user1_favs[0]['file_name'] == "user1.pdf"
-        assert user2_favs[0]['file_name'] == "user2.pdf"
-    
-    def test_favorite_folders(self, db):
-        """Test favoriting folders"""
-        db.add_user(12345, "Test", "User", "testuser")
-        
-        # Add folder to favorites
-        db.add_favorite(
-            user_id=12345,
-            file_id="folder123",
-            file_name="Important Folder",
-            file_path="/Docs/Important Folder",
-            is_folder=True
-        )
-        
-        favorites = db.get_favorites(12345)
-        assert len(favorites) == 1
-        assert favorites[0]['is_folder'] == 1  # SQLite stores True as 1
-        assert favorites[0]['file_name'] == "Important Folder"
     
     # ===== QUEUE TESTS =====
     
@@ -216,29 +119,6 @@ class TestDatabase:
     
     # ===== INTEGRATION TESTS =====
     
-    def test_user_workflow_favorites(self, db):
-        """Test complete user workflow with favorites"""
-        # User registers
-        db.add_user(12345, "Test", "User", "testuser")
-        
-        # User browses and adds favorites
-        db.add_favorite(12345, "file1", "Chapter1.pdf", "/Docs/Chapter1.pdf", False)
-        db.add_favorite(12345, "file2", "Chapter2.pdf", "/Docs/Chapter2.pdf", False)
-        db.add_favorite(12345, "folder1", "Important", "/Important", True)
-        
-        # User views favorites
-        favorites = db.get_favorites(12345)
-        assert len(favorites) == 3
-        
-        # User removes one
-        db.remove_favorite(12345, "file1")
-        favorites = db.get_favorites(12345)
-        assert len(favorites) == 2
-        
-        # User checks if specific file is favorited
-        assert db.is_favorite(12345, "file2") is True
-        assert db.is_favorite(12345, "file1") is False
-    
     def test_user_workflow_queue(self, db):
         """Test complete user workflow with download queue"""
         db.add_user(12345, "Test", "User", "testuser")
@@ -270,12 +150,10 @@ class TestDatabase:
         """Test using multiple features together"""
         db.add_user(12345, "Test", "User", "testuser")
         
-        # User adds same file to favorites and queue
-        db.add_favorite(12345, "file1", "important.pdf", "/Docs/important.pdf", False)
+        # User adds file to queue
         db.add_to_queue(12345, "file1", "important.pdf", 5000)
         
-        # Both should exist independently
-        assert db.is_favorite(12345, "file1") is True
+        # Should exist in queue
         queue = db.get_queue(12345)
         assert len(queue) == 1
 
@@ -302,12 +180,6 @@ class TestCommandHandlers:
     @pytest.mark.asyncio
     async def test_recent_command_empty(self, mock_update, mock_context):
         """Test /recent command with no downloads"""
-        # Skip - db is local variable in main(), can't mock easily
-        pytest.skip("Requires refactoring to make db mockable")
-    
-    @pytest.mark.asyncio
-    async def test_favorites_command_empty(self, mock_update, mock_context):
-        """Test /favorites command with no favorites"""
         # Skip - db is local variable in main(), can't mock easily
         pytest.skip("Requires refactoring to make db mockable")
     

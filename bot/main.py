@@ -309,7 +309,6 @@ Use /help to see all available commands.
 /search <query> - Search for files
 /searchhere <query> - Search in current folder
 /recent - View recent downloads
-/favorites - Manage your bookmarks
 /queue - Manage download queue
 /notifications - Manage notification settings
 /stats - View your download statistics
@@ -462,7 +461,6 @@ The bot checks every 2 days automatically.
                             callback_data=f"download|{file['id']}"
                         ),
                         InlineKeyboardButton("ℹ️", callback_data=f"info|{file['id']}"),
-                        InlineKeyboardButton("⭐", callback_data=f"fav_add|{file['id']}"),
                         InlineKeyboardButton("➕", callback_data=f"queue_add|{file['id']}")
                     ])
                 
@@ -498,6 +496,7 @@ The bot checks every 2 days automatically.
 
     async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle button clicks"""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         global notification_service
         
         query = update.callback_query
@@ -675,7 +674,6 @@ The bot checks every 2 days automatically.
                                     callback_data=f"download|{file['id']}"
                                 ),
                                 InlineKeyboardButton("ℹ️", callback_data=f"info|{file['id']}"),
-                                InlineKeyboardButton("⭐", callback_data=f"fav_add|{file['id']}"),
                                 InlineKeyboardButton("➕", callback_data=f"queue_add|{file['id']}")
                             ])
                         
@@ -854,18 +852,6 @@ The bot checks every 2 days automatically.
             except Exception as e:
                 logger.error(f"Error adding favorite: {e}")
                 await query.answer("❌ Error adding to favorites")
-        
-        elif action == "fav_remove":
-            # Remove from favorites
-            file_id = value
-            user_id = query.from_user.id
-            
-            if db and db.remove_favorite(user_id, file_id):
-                await query.answer("✅ Removed from favorites")
-                # Refresh favorites list
-                await favorites_command(update, context)
-            else:
-                await query.answer("❌ Failed to remove from favorites")
         
         elif action == "queue_add":
             # Add to download queue
@@ -1075,10 +1061,7 @@ The bot checks every 2 days automatically.
                 # Add download button
                 keyboard = [
                     [InlineKeyboardButton("📥 Download", callback_data=f"download|{file_id}")],
-                    [
-                        InlineKeyboardButton("⭐ Favorite", callback_data=f"fav_add|{file_id}"),
-                        InlineKeyboardButton("➕ Queue", callback_data=f"queue_add|{file_id}")
-                    ]
+                    [InlineKeyboardButton("➕ Queue", callback_data=f"queue_add|{file_id}")]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
@@ -1411,8 +1394,7 @@ The bot checks every 2 days automatically.
                 # Add button
                 if file_id:
                     keyboard.append([
-                        InlineKeyboardButton(f"📥 {idx}. {file_name[:25]}...", callback_data=f"download|{file_id}"),
-                        InlineKeyboardButton("⭐", callback_data=f"fav_add|{file_id}")
+                        InlineKeyboardButton(f"📥 {idx}. {file_name[:25]}...", callback_data=f"download|{file_id}")
                     ])
             
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
@@ -1421,52 +1403,6 @@ The bot checks every 2 days automatically.
         except Exception as e:
             logger.error(f"Error in recent_command: {e}")
             await update.message.reply_text(f"❌ Error fetching recent downloads: {str(e)}")
-    
-    async def favorites_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle the /favorites command - show user's bookmarks"""
-        user_id = update.effective_user.id
-        
-        if not db:
-            await update.message.reply_text("❌ Database not available.")
-            return
-        
-        try:
-            favorites = db.get_favorites(user_id)
-            
-            # Filter out folders - only show files
-            favorites = [f for f in favorites if not f.get('is_folder', False)]
-            
-            if not favorites:
-                await update.message.reply_text("⭐ You haven't bookmarked any files yet.\n\nClick the ⭐ button on any file to bookmark it!")
-                return
-            
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-            
-            text = f"⭐ **Your Favorites** ({len(favorites)} files)\n\n"
-            keyboard = []
-            
-            for fav in favorites:
-                file_name = fav.get('file_name', 'Unknown')
-                file_id = fav.get('file_id')
-                file_path = fav.get('file_path', '')
-                
-                text += f"📄 **{file_name}**\n"
-                if file_path:
-                    text += f"   {file_path}\n"
-                text += "\n"
-                
-                # Add buttons (files only)
-                keyboard.append([
-                    InlineKeyboardButton(f"📥 {file_name[:30]}", callback_data=f"download|{file_id}"),
-                    InlineKeyboardButton("❌", callback_data=f"fav_remove|{file_id}")
-                ])
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
-            
-        except Exception as e:
-            logger.error(f"Error in favorites_command: {e}")
-            await update.message.reply_text(f"❌ Error fetching favorites: {str(e)}")
     
     async def queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle the /queue command - show download queue"""
@@ -1592,7 +1528,6 @@ The bot checks every 2 days automatically.
                         callback_data=f"download|{file['id']}"
                     ),
                     InlineKeyboardButton("ℹ️", callback_data=f"info|{file['id']}"),
-                    InlineKeyboardButton("⭐", callback_data=f"fav_add|{file['id']}"),
                     InlineKeyboardButton("➕", callback_data=f"queue_add|{file['id']}")
                 ])
             
@@ -1610,7 +1545,6 @@ The bot checks every 2 days automatically.
     application.add_handler(CommandHandler("admin_stats", admin_stats_command))
     application.add_handler(CommandHandler("dbinfo", dbinfo_command))
     application.add_handler(CommandHandler("recent", recent_command))
-    application.add_handler(CommandHandler("favorites", favorites_command))
     application.add_handler(CommandHandler("queue", queue_command))
     application.add_handler(CommandHandler("searchhere", searchhere_command))
     application.add_handler(CommandHandler("notifications", notifications_command))
