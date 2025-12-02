@@ -2,6 +2,7 @@ services:
   - type: worker
     name: telegram-drive-bot
     env: python
+    runtime: python
     region: oregon
     plan: free
     buildCommand: pip install -r requirements.txt
