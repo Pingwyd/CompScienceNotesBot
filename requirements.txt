@@ -5,3 +5,6 @@ google-auth-oauthlib==1.2.0
 APScheduler==3.10.4
 python-dotenv==1.0.0
 psycopg2-binary==2.9.9
+
+# Python version requirement (3.11.x compatible)
+python_requires>=3.11,<3.13
