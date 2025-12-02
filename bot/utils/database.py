@@ -94,23 +94,35 @@ class Database:
                 schema_sql = self._convert_schema_to_postgresql(schema_sql)
             
             # Execute schema
+            # Temporarily disable autocommit for PostgreSQL to execute multiple statements
+            original_autocommit = None
+            if self.db_type == 'postgresql':
+                original_autocommit = self.connection.autocommit
+                self.connection.autocommit = False
+            
             cursor = self.connection.cursor()
             
             if self.db_type == 'postgresql':
                 # PostgreSQL doesn't support executescript
                 statements = [s.strip() for s in schema_sql.split(';') if s.strip()]
                 for statement in statements:
-                    cursor.execute(statement)
+                    if statement:  # Skip empty statements
+                        cursor.execute(statement)
+                self.connection.commit()
+                # Restore autocommit
+                self.connection.autocommit = original_autocommit
             else:
                 cursor.executescript(schema_sql)
+                self.connection.commit()
                 
-            self.connection.commit()
-            
             logger.info("Database schema initialized successfully")
             return True
             
         except Exception as e:
             logger.error(f"Failed to initialize schema: {e}")
+            if self.db_type == 'postgresql' and original_autocommit is not None:
+                self.connection.rollback()
+                self.connection.autocommit = original_autocommit
             return False
     
     def _convert_schema_to_postgresql(self, schema_sql: str) -> str:
