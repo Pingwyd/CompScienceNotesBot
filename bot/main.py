@@ -320,7 +320,6 @@ Use /help to see all available commands.
 /admin_stats - View bot statistics
 /check_now - Manually check for new files
 /dbinfo - View database connection info
-/analytics - Detailed usage analytics
 """
         
         help_text += """
@@ -503,7 +502,13 @@ The bot checks every 2 days automatically.
         await query.answer()  # Acknowledge the click
         
         data = query.data
-        action, value = data.split('|', 1)
+        
+        # Handle callbacks with and without pipe separator
+        if '|' in data:
+            action, value = data.split('|', 1)
+        else:
+            action = data
+            value = None
         
         if action == "notif":
             # Notification subscription toggle

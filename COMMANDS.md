@@ -43,16 +43,6 @@ This document lists all available commands for the Telegram Google Drive Bot.
 - **Shows:** Last 10 downloaded files with timestamps
 - **Actions:**
   - [Download Again] - Re-download the file
-  - [⭐ Bookmark] - Add to favorites
-
-#### `/favorites`
-- **Description:** View and manage bookmarked files/folders
-- **Usage:** `/favorites`
-- **Shows:** All your favorited items with paths
-- **Actions:**
-  - [📂 Open] - Navigate to folder
-  - [📥 Download] - Download file
-  - [❌ Remove] - Remove from favorites
 
 #### `/queue`
 - **Description:** View and manage download queue
@@ -81,7 +71,6 @@ This document lists all available commands for the Telegram Google Drive Bot.
   - Last modified date and time
 - **Actions:**
   - [📥 Download] - Download the file
-  - [⭐ Favorite] - Add to favorites
   - [➕ Queue] - Add to download queue
 
 #### 🔍 **Filter by File Type**
@@ -200,16 +189,6 @@ User: [Clicks "📄 Chapter1.pdf"]
 Bot: Sends Chapter1.pdf file
 ```
 
-### Using Favorites
-```
-User: /browse
-Bot: Shows files with ⭐ buttons
-User: [Clicks ⭐ next to "Important.pdf"]
-Bot: "⭐ Added to favorites!"
-User: /favorites
-Bot: Shows "Important.pdf" with download button
-```
-
 ### Using Queue
 ```
 User: /browse
@@ -280,8 +259,6 @@ Bot: Shows all file types again
 /start → /browse → Download Files
          ↓
       /recent → Download Again
-         ↓
-    /favorites → Quick Access
          ↓
       /queue → Batch Download
 ```
