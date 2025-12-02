@@ -130,11 +130,9 @@ class Database:
         # Replace SQLite specific syntax
         schema_sql = schema_sql.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY')
         schema_sql = schema_sql.replace('AUTOINCREMENT', '')
-        schema_sql = schema_sql.replace('IF NOT EXISTS', '')  # Will handle manually
+        # Keep IF NOT EXISTS for idempotent schema creation
         
-        # PostgreSQL uses BOOLEAN instead of INTEGER for booleans
-        schema_sql = schema_sql.replace('BOOLEAN DEFAULT FALSE', 'BOOLEAN DEFAULT FALSE')
-        schema_sql = schema_sql.replace('BOOLEAN DEFAULT TRUE', 'BOOLEAN DEFAULT TRUE')
+        # PostgreSQL uses BOOLEAN instead of INTEGER for booleans (already compatible)
         
         return schema_sql
     
