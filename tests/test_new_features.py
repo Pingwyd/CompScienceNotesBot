@@ -1,6 +1,6 @@
 """
 Test Suite for New Bot Features
-Tests: Favorites, Recent Downloads, Queue, Shortcuts
+Tests: Favorites, Recent Downloads, Queue
 
 Run with: pytest tests/test_new_features.py -v
 """
@@ -214,83 +214,6 @@ class TestDatabase:
         assert user1_queue[0]['file_name'] == "user1.pdf"
         assert user2_queue[0]['file_name'] == "user2.pdf"
     
-    # ===== SHORTCUTS TESTS =====
-    
-    def test_add_shortcut(self, db):
-        """Test adding a folder shortcut"""
-        db.add_user(12345, "Test", "User", "testuser")
-        
-        result = db.add_shortcut(
-            user_id=12345,
-            folder_id="folder123",
-            folder_name="Lecture Notes",
-            folder_path="/CS101/Lecture Notes",
-            shortcut_name="CS Lectures"
-        )
-        assert result is True
-        
-        shortcuts = db.get_shortcuts(12345)
-        assert len(shortcuts) == 1
-        assert shortcuts[0]['folder_name'] == "Lecture Notes"
-        assert shortcuts[0]['shortcut_name'] == "CS Lectures"
-    
-    def test_shortcut_default_name(self, db):
-        """Test shortcut creation with default name (None)"""
-        db.add_user(12345, "Test", "User", "testuser")
-        
-        db.add_shortcut(
-            user_id=12345,
-            folder_id="folder123",
-            folder_name="Important Folder",
-            folder_path="/Important Folder"
-        )
-        
-        shortcuts = db.get_shortcuts(12345)
-        assert len(shortcuts) == 1
-        # Should use folder_name as default
-        assert shortcuts[0]['folder_name'] == "Important Folder"
-    
-    def test_remove_shortcut(self, db):
-        """Test removing a shortcut"""
-        db.add_user(12345, "Test", "User", "testuser")
-        db.add_shortcut(12345, "folder123", "Test", "/Test")
-        
-        result = db.remove_shortcut(12345, "folder123")
-        assert result is True
-        
-        shortcuts = db.get_shortcuts(12345)
-        assert len(shortcuts) == 0
-    
-    def test_shortcuts_multiple_users(self, db):
-        """Test that shortcuts are user-specific"""
-        db.add_user(12345, "User", "One", "user1")
-        db.add_user(67890, "User", "Two", "user2")
-        
-        db.add_shortcut(12345, "folder1", "Folder A", "/A")
-        db.add_shortcut(67890, "folder2", "Folder B", "/B")
-        
-        user1_shortcuts = db.get_shortcuts(12345)
-        user2_shortcuts = db.get_shortcuts(67890)
-        
-        assert len(user1_shortcuts) == 1
-        assert len(user2_shortcuts) == 1
-        assert user1_shortcuts[0]['folder_name'] == "Folder A"
-        assert user2_shortcuts[0]['folder_name'] == "Folder B"
-    
-    def test_duplicate_shortcut(self, db):
-        """Test adding same folder shortcut twice (should update)"""
-        db.add_user(12345, "Test", "User", "testuser")
-        
-        # Add shortcut
-        db.add_shortcut(12345, "folder123", "Folder", "/Folder", "Old Name")
-        
-        # Add again with different name
-        db.add_shortcut(12345, "folder123", "Folder", "/Folder", "New Name")
-        
-        shortcuts = db.get_shortcuts(12345)
-        # Should only have one entry
-        assert len(shortcuts) == 1
-    
     # ===== INTEGRATION TESTS =====
     
     def test_user_workflow_favorites(self, db):
@@ -343,24 +266,6 @@ class TestDatabase:
         queue = db.get_queue(12345)
         assert len(queue) == 0
     
-    def test_user_workflow_shortcuts(self, db):
-        """Test complete user workflow with shortcuts"""
-        db.add_user(12345, "Test", "User", "testuser")
-        
-        # User creates shortcuts to frequently used folders
-        db.add_shortcut(12345, "f1", "CS 101 Lectures", "/CS101/Lectures", "CS Lectures")
-        db.add_shortcut(12345, "f2", "Assignments", "/CS101/Assignments", "Homework")
-        db.add_shortcut(12345, "f3", "Resources", "/Resources")
-        
-        # User views shortcuts
-        shortcuts = db.get_shortcuts(12345)
-        assert len(shortcuts) == 3
-        
-        # User removes one shortcut
-        db.remove_shortcut(12345, "f2")
-        shortcuts = db.get_shortcuts(12345)
-        assert len(shortcuts) == 2
-    
     def test_combined_features(self, db):
         """Test using multiple features together"""
         db.add_user(12345, "Test", "User", "testuser")
@@ -373,16 +278,6 @@ class TestDatabase:
         assert db.is_favorite(12345, "file1") is True
         queue = db.get_queue(12345)
         assert len(queue) == 1
-        
-        # User creates shortcut to a folder and also favorites it
-        db.add_shortcut(12345, "folder1", "Important Folder", "/Important")
-        db.add_favorite(12345, "folder1", "Important Folder", "/Important", True)
-        
-        shortcuts = db.get_shortcuts(12345)
-        favorites = db.get_favorites(12345)
-        
-        assert len(shortcuts) == 1
-        assert len([f for f in favorites if f['is_folder']]) == 1
 
 
 class TestCommandHandlers:
@@ -419,12 +314,6 @@ class TestCommandHandlers:
     @pytest.mark.asyncio
     async def test_queue_command_empty(self, mock_update, mock_context):
         """Test /queue command with empty queue"""
-        # Skip - db is local variable in main(), can't mock easily
-        pytest.skip("Requires refactoring to make db mockable")
-    
-    @pytest.mark.asyncio
-    async def test_shortcuts_command_empty(self, mock_update, mock_context):
-        """Test /shortcuts command with no shortcuts"""
         # Skip - db is local variable in main(), can't mock easily
         pytest.skip("Requires refactoring to make db mockable")
 

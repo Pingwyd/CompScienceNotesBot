@@ -311,7 +311,6 @@ Use /help to see all available commands.
 /recent - View recent downloads
 /favorites - Manage your bookmarks
 /queue - Manage download queue
-/shortcuts - Quick folder access
 /notifications - Manage notification settings
 /stats - View your download statistics
 """
@@ -431,8 +430,7 @@ The bot checks every 2 days automatically.
                 file_list_text += "📁 **Folders:**\n"
                 for folder in folders:
                     keyboard.append([
-                        InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}"),
-                        InlineKeyboardButton("🔖", callback_data=f"shortcut_add|{folder['id']}")
+                        InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}")
                     ])
                 file_list_text += "\n"
             
@@ -648,8 +646,7 @@ The bot checks every 2 days automatically.
                         file_list_text += "📁 **Folders:**\n"
                         for folder in folders:
                             keyboard.append([
-                                InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}"),
-                                InlineKeyboardButton("🔖", callback_data=f"shortcut_add|{folder['id']}")
+                                InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}")
                             ])
                         file_list_text += "\n"
                     
@@ -834,7 +831,7 @@ The bot checks every 2 days automatically.
                     
                     # Don't allow favoriting folders
                     if is_folder:
-                        await query.answer("❌ Cannot favorite folders, use shortcuts instead!")
+                        await query.answer("❌ Cannot favorite folders, only files can be favorited!")
                         return
                     
                     file_path = file_info.get('path', '')
@@ -1018,17 +1015,6 @@ The bot checks every 2 days automatically.
             except Exception as e:
                 logger.error(f"Error creating shortcut: {e}")
                 await query.answer("❌ Error creating shortcut")
-        
-        elif action == "shortcut_remove":
-            # Remove folder shortcut
-            folder_id = value
-            user_id = query.from_user.id
-            
-            if db and db.remove_shortcut(user_id, folder_id):
-                await query.answer("✅ Shortcut removed")
-                await shortcuts_command(update, context)
-            else:
-                await query.answer("❌ Failed to remove shortcut")
         
         elif action == "info":
             # Show file preview/info
@@ -1524,48 +1510,6 @@ The bot checks every 2 days automatically.
             logger.error(f"Error in queue_command: {e}")
             await update.message.reply_text(f"❌ Error fetching queue: {str(e)}")
     
-    async def shortcuts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle the /shortcuts command - show folder shortcuts"""
-        user_id = update.effective_user.id
-        
-        if not db:
-            await update.message.reply_text("❌ Database not available.")
-            return
-        
-        try:
-            shortcuts = db.get_shortcuts(user_id)
-            
-            if not shortcuts:
-                await update.message.reply_text("⚡ You haven't created any shortcuts yet.\n\nUse the 🔖 button on folders to create quick access!")
-                return
-            
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-            
-            text = f"⚡ **Folder Shortcuts** ({len(shortcuts)})\n\n"
-            keyboard = []
-            
-            for shortcut in shortcuts:
-                folder_name = shortcut.get('shortcut_name') or shortcut.get('folder_name', 'Unknown')
-                folder_id = shortcut.get('folder_id')
-                folder_path = shortcut.get('folder_path', '')
-                
-                text += f"📁 **{folder_name}**\n"
-                if folder_path:
-                    text += f"   {folder_path}\n"
-                text += "\n"
-                
-                keyboard.append([
-                    InlineKeyboardButton(f"📂 {folder_name[:35]}", callback_data=f"folder|{folder_id}"),
-                    InlineKeyboardButton("❌", callback_data=f"shortcut_remove|{folder_id}")
-                ])
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
-            
-        except Exception as e:
-            logger.error(f"Error in shortcuts_command: {e}")
-            await update.message.reply_text(f"❌ Error fetching shortcuts: {str(e)}")
-    
     def format_file_size(size_bytes: int) -> str:
         """Format bytes to human readable size"""
         for unit in ['B', 'KB', 'MB', 'GB']:
@@ -1668,7 +1612,6 @@ The bot checks every 2 days automatically.
     application.add_handler(CommandHandler("recent", recent_command))
     application.add_handler(CommandHandler("favorites", favorites_command))
     application.add_handler(CommandHandler("queue", queue_command))
-    application.add_handler(CommandHandler("shortcuts", shortcuts_command))
     application.add_handler(CommandHandler("searchhere", searchhere_command))
     application.add_handler(CommandHandler("notifications", notifications_command))
     application.add_handler(CommandHandler("check_now", check_now_command))
@@ -1705,7 +1648,7 @@ The bot checks every 2 days automatically.
     # Ping every 14 minutes to stay active on Render free tier
     scheduler.add_job(
         keep_alive_ping,
-        trigger=IntervalTrigger(minutes=12),
+        trigger=IntervalTrigger(minutes=5),
         id='keep_alive',
         name='Keep service active on Render',
         replace_existing=True

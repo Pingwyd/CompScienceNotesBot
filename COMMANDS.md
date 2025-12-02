@@ -62,14 +62,6 @@ This document lists all available commands for the Telegram Google Drive Bot.
   - [📥 Download All] - Batch download all queued files
   - [🗑️ Clear Queue] - Remove all items from queue
 
-#### `/shortcuts`
-- **Description:** Quick access to frequently used folders
-- **Usage:** `/shortcuts`
-- **Shows:** All saved folder shortcuts
-- **Actions:**
-  - [📂 Open Folder] - Navigate directly to folder
-  - [❌ Remove] - Delete shortcut
-
 #### `/searchhere <query>`
 - **Description:** Search for files in your current folder location
 - **Usage:** `/searchhere <search term>`
@@ -279,13 +271,6 @@ Bot: Still filtering PDFs in new folder
 User: [Clicks "📎 All Files"]
 Bot: Shows all file types again
 ```
-User: /browse → [Opens "CS 101"] → [Clicks 🔖]
-Bot: "🔖 Shortcut created!"
-User: /shortcuts
-Bot: Shows "CS 101" folder
-User: [Clicks "📂 Open Folder"]
-Bot: Navigates directly to CS 101 folder
-```
 
 ---
 
@@ -299,8 +284,6 @@ Bot: Navigates directly to CS 101 folder
     /favorites → Quick Access
          ↓
       /queue → Batch Download
-         ↓
-   /shortcuts → Folder Quick Access
 ```
 
 ---
