@@ -287,6 +287,16 @@ The bot checks every 2 days automatically.
 
     async def browse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle the /browse command"""
+        # Initialize navigation context
+        if 'nav_history' not in context.user_data:
+            context.user_data['nav_history'] = []
+        if 'current_page' not in context.user_data:
+            context.user_data['current_page'] = 0
+        
+        # Reset to root
+        context.user_data['nav_history'] = []
+        context.user_data['current_page'] = 0
+        
         # Check if this is a callback query (from "Back" button) or a command
         if update.callback_query:
             # It's a button click
@@ -318,16 +328,35 @@ The bot checks every 2 days automatically.
                 await message.edit_text("No files found in the drive.")
                 return
             
+            # Separate folders and files
+            folders = [f for f in files if drive.is_folder(f)]
+            regular_files = [f for f in files if not drive.is_folder(f)]
+            
+            # Pagination settings
+            ITEMS_PER_PAGE = 15
+            page = context.user_data.get('current_page', 0)
+            
             # Create keyboard with buttons
             keyboard = []
-            file_list_text = "📁 **Course Materials**\n\n"
             
-            for file in files:
-                # Check if it's a folder or file
-                if drive.is_folder(file):
-                    # Add a button for the folder
-                    keyboard.append([InlineKeyboardButton(f"📁 {file['name']}", callback_data=f"folder|{file['id']}")])
-                else:
+            # Breadcrumb navigation (root level)
+            file_list_text = "📍 **Home** > Course Materials\n\n"
+            
+            # Add folders first (no pagination for folders, usually not many)
+            if folders:
+                file_list_text += "📁 **Folders:**\n"
+                for folder in folders:
+                    keyboard.append([InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}")])
+                file_list_text += "\n"
+            
+            # Add files with pagination
+            if regular_files:
+                file_list_text += "📄 **Files:**\n"
+                start_idx = page * ITEMS_PER_PAGE
+                end_idx = start_idx + ITEMS_PER_PAGE
+                page_files = regular_files[start_idx:end_idx]
+                
+                for file in page_files:
                     # Determine icon based on file type
                     name = file['name'].lower()
                     if name.endswith('.pdf'):
@@ -341,11 +370,27 @@ The bot checks every 2 days automatically.
                     else:
                         icon = "📎"
                     
-                    # Add file to text list (we'll add download buttons later)
-                    size = f" ({drive.format_file_size(file.get('size'))})"
-                    file_list_text += f"{icon} {file['name']}{size}\n"
+                    size = f" ({drive.format_file_size(file.get('size'))})" if file.get('size') else ""
+                    keyboard.append([InlineKeyboardButton(
+                        f"{icon} {file['name'][:40]}{'...' if len(file['name']) > 40 else ''}{size}",
+                        callback_data=f"download|{file['id']}"
+                    )])
+                
+                # Add pagination buttons if needed
+                if len(regular_files) > ITEMS_PER_PAGE:
+                    nav_buttons = []
+                    if page > 0:
+                        nav_buttons.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"page|{page-1}"))
+                    file_list_text += f"\n_Page {page + 1}/{(len(regular_files) - 1) // ITEMS_PER_PAGE + 1}_"
+                    if end_idx < len(regular_files):
+                        nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"page|{page+1}"))
+                    if nav_buttons:
+                        keyboard.append(nav_buttons)
             
-            file_list_text += "\n👇 Click a folder to open it:"
+            if not folders and not regular_files:
+                file_list_text += "_(No items)_"
+            else:
+                file_list_text += f"\n\n📊 Total: {len(folders)} folders, {len(regular_files)} files"
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             await message.edit_text(file_list_text, reply_markup=reply_markup)
@@ -399,8 +444,25 @@ The bot checks every 2 days automatically.
                 else:
                     await query.edit_message_text("❌ Notification service is not available.")
         
+        elif action == "page":
+            # Pagination handler
+            page_num = int(value)
+            context.user_data['current_page'] = page_num
+            
+            # Re-render current view
+            await browse_command(update, context)
+        
         elif action == "folder":
             folder_id = value
+            
+            # Initialize navigation if not exists
+            if 'nav_history' not in context.user_data:
+                context.user_data['nav_history'] = []
+            if 'current_page' not in context.user_data:
+                context.user_data['current_page'] = 0
+            
+            # Reset page when entering folder
+            context.user_data['current_page'] = 0
             
             try:
                 # Import DriveService (same as above)
@@ -417,44 +479,191 @@ The bot checks every 2 days automatically.
                 folder_info = drive.get_file_info(folder_id)
                 folder_name = folder_info['name'] if folder_info else "Folder"
                 
+                # Add to navigation history
+                context.user_data['nav_history'].append({'id': folder_id, 'name': folder_name})
+                
                 # List files in the folder
                 files = drive.list_files(folder_id)
+                
+                # Separate folders and files
+                folders = [f for f in files if drive.is_folder(f)]
+                regular_files = [f for f in files if not drive.is_folder(f)]
+                
+                # Pagination settings
+                ITEMS_PER_PAGE = 15
+                page = context.user_data.get('current_page', 0)
                 
                 # Create keyboard
                 keyboard = []
                 
-                # Add "Back" button (we need to know parent ID, but for now let's just go to root if we can't find it)
-                # Ideally we should track navigation history, but for simplicity:
-                # We'll add a "Back to Root" button for now
-                keyboard.append([InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="root|root")])
+                # Build breadcrumb path
+                breadcrumb = "📍 **Home**"
+                for nav in context.user_data['nav_history']:
+                    breadcrumb += f" > {nav['name']}"
                 
-                file_list_text = f"📁 **{folder_name}**\n\n"
+                file_list_text = f"{breadcrumb}\n\n"
+                
+                # Add "Back" and "Download Folder as ZIP" buttons
+                nav_buttons = []
+                if len(context.user_data['nav_history']) > 0:
+                    nav_buttons.append(InlineKeyboardButton("⬅️ Back", callback_data="back|back"))
+                nav_buttons.append(InlineKeyboardButton("📦 Download as ZIP", callback_data=f"zipfolder|{folder_id}"))
+                if nav_buttons:
+                    keyboard.append(nav_buttons)
                 
                 if not files:
                     file_list_text += "_(Empty folder)_"
-                
-                for file in files:
-                    if drive.is_folder(file):
-                        keyboard.append([InlineKeyboardButton(f"📁 {file['name']}", callback_data=f"folder|{file['id']}")])
-                    else:
-                        # File icons
-                        name = file['name'].lower()
-                        if name.endswith('.pdf'): icon = "📄"
-                        elif name.endswith(('.doc', '.docx')): icon = "📝"
-                        elif name.endswith(('.jpg', '.jpeg', '.png')): icon = "🖼️"
-                        elif name.endswith('.mp4'): icon = "🎥"
-                        else: icon = "📎"
+                else:
+                    # Add folders first
+                    if folders:
+                        file_list_text += "📁 **Folders:**\n"
+                        for folder in folders:
+                            keyboard.append([InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}")])
+                        file_list_text += "\n"
+                    
+                    # Add files with pagination
+                    if regular_files:
+                        file_list_text += "📄 **Files:**\n"
+                        start_idx = page * ITEMS_PER_PAGE
+                        end_idx = start_idx + ITEMS_PER_PAGE
+                        page_files = regular_files[start_idx:end_idx]
                         
-                        size = f" ({drive.format_file_size(file.get('size'))})"
+                        for file in page_files:
+                            # File icons
+                            name = file['name'].lower()
+                            if name.endswith('.pdf'): icon = "📄"
+                            elif name.endswith(('.doc', '.docx')): icon = "📝"
+                            elif name.endswith(('.jpg', '.jpeg', '.png')): icon = "🖼️"
+                            elif name.endswith('.mp4'): icon = "🎥"
+                            else: icon = "📎"
+                            
+                            size = f" ({drive.format_file_size(file.get('size'))})" if file.get('size') else ""
+                            
+                            # Add button for file download
+                            keyboard.append([InlineKeyboardButton(
+                                f"{icon} {file['name'][:40]}{'...' if len(file['name']) > 40 else ''}{size}",
+                                callback_data=f"download|{file['id']}"
+                            )])
                         
-                        # Add button for file download
-                        keyboard.append([InlineKeyboardButton(f"{icon} {file['name']}{size}", callback_data=f"download|{file['id']}")])
+                        # Add pagination buttons if needed
+                        if len(regular_files) > ITEMS_PER_PAGE:
+                            pag_buttons = []
+                            if page > 0:
+                                pag_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"page|{page-1}"))
+                            file_list_text += f"\n_Page {page + 1}/{(len(regular_files) - 1) // ITEMS_PER_PAGE + 1}_"
+                            if end_idx < len(regular_files):
+                                pag_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"page|{page+1}"))
+                            if pag_buttons:
+                                keyboard.append(pag_buttons)
+                    
+                    file_list_text += f"\n\n📊 Total: {len(folders)} folders, {len(regular_files)} files"
                 
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                await query.edit_message_text(file_list_text, reply_markup=reply_markup)
+                await query.edit_message_text(file_list_text, reply_markup=reply_markup, parse_mode='Markdown')
                 
             except Exception as e:
                 await query.edit_message_text(f"❌ Error loading folder: {str(e)}")
+        
+        elif action == "back":
+            # Go back in navigation history
+            if 'nav_history' in context.user_data and len(context.user_data['nav_history']) > 0:
+                context.user_data['nav_history'].pop()  # Remove current folder
+                context.user_data['current_page'] = 0  # Reset page
+                
+                if len(context.user_data['nav_history']) == 0:
+                    # Back to root
+                    await browse_command(update, context)
+                else:
+                    # Go to parent folder
+                    parent = context.user_data['nav_history'][-1]
+                    context.user_data['nav_history'].pop()  # Will be re-added by folder handler
+                    
+                    # Simulate clicking on parent folder
+                    query.data = f"folder|{parent['id']}"
+                    await button_click(update, context)
+            else:
+                await browse_command(update, context)
+        
+        elif action == "zipfolder":
+            folder_id = value
+            await query.message.reply_text("📦 Creating ZIP archive... This may take a while for large folders.")
+            
+            try:
+                import sys
+                from pathlib import Path
+                bot_dir = Path(__file__).parent
+                if str(bot_dir) not in sys.path:
+                    sys.path.insert(0, str(bot_dir))
+                from services.drive_service import DriveService
+                import zipfile
+                from io import BytesIO
+                import os
+                
+                drive = DriveService()
+                folder_info = drive.get_file_info(folder_id)
+                folder_name = folder_info['name'] if folder_info else "Folder"
+                
+                # Get all files recursively
+                status_msg = await query.message.reply_text(f"📁 Scanning folder '{folder_name}'...")
+                all_files = drive._get_all_files_recursive(folder_id, max_depth=5)
+                
+                # Filter out folders, keep only files
+                file_list = [f for f in all_files if not drive.is_folder(f)]
+                
+                if not file_list:
+                    await status_msg.edit_text("❌ No files found in this folder.")
+                    return
+                
+                # Check total size
+                total_size = sum(int(f.get('size', 0)) for f in file_list)
+                max_size = 50 * 1024 * 1024  # 50MB Telegram limit
+                
+                if total_size > max_size:
+                    await status_msg.edit_text(
+                        f"❌ Folder too large for Telegram ({drive.format_file_size(total_size)}).\n\n"
+                        f"Maximum size: 50 MB\n"
+                        f"Please download files individually or use smaller folders."
+                    )
+                    return
+                
+                await status_msg.edit_text(f"📦 Downloading {len(file_list)} files...")
+                
+                # Create ZIP in memory
+                zip_buffer = BytesIO()
+                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                    for idx, file in enumerate(file_list, 1):
+                        try:
+                            await status_msg.edit_text(f"📥 {idx}/{len(file_list)}: {file['name'][:30]}...")
+                            
+                            file_content = drive.download_file(file['id'])
+                            if file_content:
+                                # Use file path if available, otherwise just name
+                                arc_name = file.get('path', file['name'])
+                                zip_file.writestr(arc_name, file_content.read())
+                        except Exception as e:
+                            logger.warning(f"Failed to add {file['name']} to ZIP: {e}")
+                
+                zip_buffer.seek(0)
+                
+                await status_msg.edit_text("📤 Uploading ZIP to Telegram...")
+                
+                # Send ZIP file
+                await context.bot.send_document(
+                    chat_id=query.message.chat_id,
+                    document=zip_buffer,
+                    filename=f"{folder_name}.zip",
+                    caption=f"📦 {folder_name}.zip\n📊 {len(file_list)} files ({drive.format_file_size(total_size)})"
+                )
+                
+                # Log download in database
+                if db:
+                    db.log_download(query.from_user.id, folder_id, 'folder_zip')
+                
+                await status_msg.delete()
+                
+            except Exception as e:
+                logger.error(f"ZIP creation error: {e}")
+                await query.message.reply_text(f"❌ Error creating ZIP: {str(e)}")
         
         elif action == "download":
             file_id = value
