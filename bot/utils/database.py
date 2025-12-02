@@ -47,6 +47,7 @@ class Database:
                     db_url = db_url.replace('postgres://', 'postgresql://', 1)
                 
                 self.connection = psycopg2.connect(db_url, cursor_factory=RealDictCursor)
+                self.connection.autocommit = True  # Enable autocommit to avoid transaction errors
                 self.db_type = 'postgresql'
                 logger.info(f"Connected to PostgreSQL database")
             else:
@@ -247,12 +248,17 @@ class Database:
         """Get count of users active within the last `days` days"""
         try:
             cursor = self.connection.cursor()
-            placeholder = '%s' if self.db_type == 'postgresql' else '?'
             
-            cursor.execute(f"""
-                SELECT COUNT(*) as count FROM users 
-                WHERE last_active >= datetime('now', {placeholder})
-            """, (f"-{days} days",))
+            if self.db_type == 'postgresql':
+                cursor.execute("""
+                    SELECT COUNT(*) as count FROM users 
+                    WHERE last_active >= NOW() - INTERVAL '%s days'
+                """, (days,))
+            else:
+                cursor.execute("""
+                    SELECT COUNT(*) as count FROM users 
+                    WHERE last_active >= datetime('now', '-' || ? || ' days')
+                """, (days,))
             
             row = cursor.fetchone()
             return row['count'] if row else 0
