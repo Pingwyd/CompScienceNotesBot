@@ -418,7 +418,6 @@ The bot checks every 2 days automatically.
                 for folder in folders:
                     keyboard.append([
                         InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}"),
-                        InlineKeyboardButton("⭐", callback_data=f"fav_add|{folder['id']}"),
                         InlineKeyboardButton("🔖", callback_data=f"shortcut_add|{folder['id']}")
                     ])
                 file_list_text += "\n"
@@ -636,7 +635,6 @@ The bot checks every 2 days automatically.
                         for folder in folders:
                             keyboard.append([
                                 InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}"),
-                                InlineKeyboardButton("⭐", callback_data=f"fav_add|{folder['id']}"),
                                 InlineKeyboardButton("🔖", callback_data=f"shortcut_add|{folder['id']}")
                             ])
                         file_list_text += "\n"
@@ -819,6 +817,12 @@ The bot checks every 2 days automatically.
                 
                 if file_info and db:
                     is_folder = drive.is_folder(file_info)
+                    
+                    # Don't allow favoriting folders
+                    if is_folder:
+                        await query.answer("❌ Cannot favorite folders, use shortcuts instead!")
+                        return
+                    
                     file_path = file_info.get('path', '')
                     
                     success = db.add_favorite(
@@ -826,7 +830,7 @@ The bot checks every 2 days automatically.
                         file_id=file_id,
                         file_name=file_info['name'],
                         file_path=file_path,
-                        is_folder=is_folder
+                        is_folder=False
                     )
                     
                     if success:
@@ -1260,7 +1264,8 @@ The bot checks every 2 days automatically.
             downloads = db.get_user_downloads(user_id)
             is_subscribed = notification_service.is_subscribed(user_id) if notification_service else False
             
-            stats_text = f"📊 **Your Statistics**\n\n"
+            # Use HTML to avoid Markdown parsing issues
+            stats_text = "📊 <b>Your Statistics</b>\n\n"
             stats_text += f"👤 User: {user_data.get('first_name', 'Unknown')}\n"
             stats_text += f"📥 Total Downloads: {user_data.get('total_downloads', 0)}\n"
             
@@ -1272,12 +1277,14 @@ The bot checks every 2 days automatically.
             stats_text += f"🔔 Notifications: {'ON' if is_subscribed else 'OFF'}\n"
             
             if downloads:
-                stats_text += f"\n**Recent Downloads:**\n"
+                stats_text += f"\n<b>Recent Downloads:</b>\n"
                 for dl in downloads[:5]:
                     file_name = dl.get('file_name', 'Unknown')
+                    # Escape HTML special characters
+                    file_name = file_name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                     stats_text += f"  • {file_name}\n"
             
-            await update.message.reply_text(stats_text, parse_mode='Markdown')
+            await update.message.reply_text(stats_text, parse_mode='HTML')
         except Exception as e:
             await update.message.reply_text(f"❌ Error fetching stats: {str(e)}")
     
@@ -1365,14 +1372,17 @@ The bot checks every 2 days automatically.
             
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
             
-            # Show last 10 downloads
-            text = "📥 **Recent Downloads**\n\n"
+            # Show last 10 downloads - use HTML to avoid parsing issues
+            text = "📥 <b>Recent Downloads</b>\n\n"
             keyboard = []
             
             for idx, dl in enumerate(downloads[:10], 1):
                 file_name = dl.get('file_name', 'Unknown')
                 file_id = dl.get('file_id')
                 download_date = dl.get('download_date', '')
+                
+                # Escape HTML special characters in filename
+                file_name_escaped = file_name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 
                 # Format date
                 if download_date:
@@ -1396,7 +1406,7 @@ The bot checks every 2 days automatically.
                 else:
                     time_str = "Unknown"
                 
-                text += f"{idx}. **{file_name}**\n   Downloaded: {time_str}\n\n"
+                text += f"{idx}. <b>{file_name_escaped}</b>\n   Downloaded: {time_str}\n\n"
                 
                 # Add button
                 if file_id:
@@ -1406,7 +1416,7 @@ The bot checks every 2 days automatically.
                     ])
             
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='HTML')
             
         except Exception as e:
             logger.error(f"Error in recent_command: {e}")
@@ -1423,38 +1433,33 @@ The bot checks every 2 days automatically.
         try:
             favorites = db.get_favorites(user_id)
             
+            # Filter out folders - only show files
+            favorites = [f for f in favorites if not f.get('is_folder', False)]
+            
             if not favorites:
                 await update.message.reply_text("⭐ You haven't bookmarked any files yet.\n\nClick the ⭐ button on any file to bookmark it!")
                 return
             
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
             
-            text = f"⭐ **Your Favorites** ({len(favorites)})\n\n"
+            text = f"⭐ **Your Favorites** ({len(favorites)} files)\n\n"
             keyboard = []
             
             for fav in favorites:
                 file_name = fav.get('file_name', 'Unknown')
                 file_id = fav.get('file_id')
                 file_path = fav.get('file_path', '')
-                is_folder = fav.get('is_folder', False)
                 
-                icon = "📁" if is_folder else "📄"
-                text += f"{icon} **{file_name}**\n"
+                text += f"📄 **{file_name}**\n"
                 if file_path:
                     text += f"   {file_path}\n"
                 text += "\n"
                 
-                # Add buttons
-                if is_folder:
-                    keyboard.append([
-                        InlineKeyboardButton(f"📂 {file_name[:30]}", callback_data=f"folder|{file_id}"),
-                        InlineKeyboardButton("❌", callback_data=f"fav_remove|{file_id}")
-                    ])
-                else:
-                    keyboard.append([
-                        InlineKeyboardButton(f"📥 {file_name[:30]}", callback_data=f"download|{file_id}"),
-                        InlineKeyboardButton("❌", callback_data=f"fav_remove|{file_id}")
-                    ])
+                # Add buttons (files only)
+                keyboard.append([
+                    InlineKeyboardButton(f"📥 {file_name[:30]}", callback_data=f"download|{file_id}"),
+                    InlineKeyboardButton("❌", callback_data=f"fav_remove|{file_id}")
+                ])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
