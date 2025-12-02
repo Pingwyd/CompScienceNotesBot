@@ -997,7 +997,7 @@ The bot checks every 2 days automatically.
     # Ping every 14 minutes to stay active on Render free tier
     scheduler.add_job(
         keep_alive_ping,
-        trigger=IntervalTrigger(minutes=14),
+        trigger=IntervalTrigger(minutes=12),
         id='keep_alive',
         name='Keep service active on Render',
         replace_existing=True
