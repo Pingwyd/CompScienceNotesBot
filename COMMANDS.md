@@ -70,6 +70,40 @@ This document lists all available commands for the Telegram Google Drive Bot.
   - [📂 Open Folder] - Navigate directly to folder
   - [❌ Remove] - Delete shortcut
 
+#### `/searchhere <query>`
+- **Description:** Search for files in your current folder location
+- **Usage:** `/searchhere <search term>`
+- **Examples:**
+  - `/searchhere chapter 5` - Find files with "chapter 5" in name
+  - `/searchhere assignment` - Find files with "assignment" in name
+- **Shows:** Up to 15 matching files with download/info/favorite/queue buttons
+- **Note:** Search is case-insensitive and searches only in current folder
+
+#### ℹ️ **File Preview/Info**
+- **Description:** View detailed file information before downloading
+- **Usage:** Click the ℹ️ button next to any file
+- **Shows:**
+  - File name
+  - File size (human-readable)
+  - File type (PDF, Word, Image, Video, etc.)
+  - Last modified date and time
+- **Actions:**
+  - [📥 Download] - Download the file
+  - [⭐ Favorite] - Add to favorites
+  - [➕ Queue] - Add to download queue
+
+#### 🔍 **Filter by File Type**
+- **Description:** Filter files by category in browse view
+- **Usage:** Click filter buttons at top of file listings
+- **Filters Available:**
+  - 📄 PDFs - Show only PDF files
+  - 📝 Docs - Show only Word documents (.doc, .docx)
+  - 🖼️ Images - Show only images (.jpg, .png, .gif, etc.)
+  - 🎥 Videos - Show only videos (.mp4, .avi, .mov, etc.)
+  - 📎 All Files - Remove filter, show everything
+- **Note:** Filters persist while navigating folders
+  - [❌ Remove] - Delete shortcut
+
 ---
 
 ### Statistics & Info
@@ -145,7 +179,16 @@ These actions are triggered by clicking buttons in the bot interface:
 ### NEW: Quick Actions (shown next to files/folders)
 - **⭐** - Add to favorites (bookmark)
 - **➕** - Add to download queue
-- **🔖** - Create folder shortcut
+- **🔖** - Create folder shortcut (folders only)
+- **ℹ️** - View file information/preview (files only)
+
+### Filter & Search Actions
+- **📄 PDFs** - Filter to show only PDF files
+- **📝 Docs** - Filter to show only Word documents
+- **🖼️ Images** - Filter to show only image files
+- **🎥 Videos** - Filter to show only video files
+- **📎 All Files** - Clear filter, show all files
+- **🔍 Search** - Opens search prompt (use /searchhere command)
 
 ### Notification Actions
 - **🔔 Subscribe** - Enable notifications
@@ -189,6 +232,52 @@ Bot: Downloads both files in sequence
 ```
 
 ### Using Shortcuts
+```
+User: /browse → [Opens "CS 101"] → [Clicks 🔖]
+Bot: "🔖 Shortcut created!"
+User: /shortcuts
+Bot: Shows "CS 101" folder
+User: [Clicks "📂 Open Folder"]
+Bot: Navigates directly to CS 101 folder
+```
+
+### Using File Info
+```
+User: /browse → [Opens folder]
+Bot: Shows files with ℹ️ buttons
+User: [Clicks ℹ️ next to "Lecture5.pdf"]
+Bot: Shows:
+     ℹ️ File Information
+     Name: Lecture5.pdf
+     Size: 2.5 MB
+     Type: PDF Document
+     Modified: December 1, 2025 at 3:45 PM
+     [📥 Download] [⭐ Favorite] [➕ Queue]
+```
+
+### Using Inline Search
+```
+User: /browse → [Opens "Assignments" folder]
+Bot: Shows files
+User: /searchhere assignment 3
+Bot: 🔍 Search Results (2)
+     Query: assignment 3
+     Location: Assignments
+     📄 Assignment3_Part1.pdf
+     📄 Assignment3_Part2.pdf
+     (with download/info/favorite/queue buttons)
+```
+
+### Using Filters
+```
+User: /browse
+Bot: Shows all files with filter buttons
+User: [Clicks "📄 PDFs"]
+Bot: Shows only PDF files
+User: [Navigates to folder]
+Bot: Still filtering PDFs in new folder
+User: [Clicks "📎 All Files"]
+Bot: Shows all file types again
 ```
 User: /browse → [Opens "CS 101"] → [Clicks 🔖]
 Bot: "🔖 Shortcut created!"
