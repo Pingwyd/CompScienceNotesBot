@@ -293,6 +293,10 @@ Use /help to see all available commands.
 /help - Show this help message
 /browse - Browse course materials
 /search <query> - Search for files
+/recent - View recent downloads
+/favorites - Manage your bookmarks
+/queue - Manage download queue
+/shortcuts - Quick folder access
 /notifications - Manage notification settings
 /stats - View your download statistics
 """
@@ -303,6 +307,7 @@ Use /help to see all available commands.
 /admin_stats - View bot statistics
 /check_now - Manually check for new files
 /dbinfo - View database connection info
+/analytics - Detailed usage analytics
 """
         
         help_text += """
@@ -382,7 +387,11 @@ The bot checks every 2 days automatically.
             if folders:
                 file_list_text += "📁 **Folders:**\n"
                 for folder in folders:
-                    keyboard.append([InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}")])
+                    keyboard.append([
+                        InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}"),
+                        InlineKeyboardButton("⭐", callback_data=f"fav_add|{folder['id']}"),
+                        InlineKeyboardButton("🔖", callback_data=f"shortcut_add|{folder['id']}")
+                    ])
                 file_list_text += "\n"
             
             # Add files with pagination
@@ -407,10 +416,14 @@ The bot checks every 2 days automatically.
                         icon = "📎"
                     
                     size = f" ({drive.format_file_size(file.get('size'))})" if file.get('size') else ""
-                    keyboard.append([InlineKeyboardButton(
-                        f"{icon} {file['name'][:40]}{'...' if len(file['name']) > 40 else ''}{size}",
-                        callback_data=f"download|{file['id']}"
-                    )])
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            f"{icon} {file['name'][:40]}{'...' if len(file['name']) > 40 else ''}{size}",
+                            callback_data=f"download|{file['id']}"
+                        ),
+                        InlineKeyboardButton("⭐", callback_data=f"fav_add|{file['id']}"),
+                        InlineKeyboardButton("➕", callback_data=f"queue_add|{file['id']}")
+                    ])
                 
                 # Add pagination buttons if needed
                 if len(regular_files) > ITEMS_PER_PAGE:
@@ -564,7 +577,11 @@ The bot checks every 2 days automatically.
                     if folders:
                         file_list_text += "📁 **Folders:**\n"
                         for folder in folders:
-                            keyboard.append([InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}")])
+                            keyboard.append([
+                                InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}"),
+                                InlineKeyboardButton("⭐", callback_data=f"fav_add|{folder['id']}"),
+                                InlineKeyboardButton("🔖", callback_data=f"shortcut_add|{folder['id']}")
+                            ])
                         file_list_text += "\n"
                     
                     # Add files with pagination
@@ -585,11 +602,15 @@ The bot checks every 2 days automatically.
                             
                             size = f" ({drive.format_file_size(file.get('size'))})" if file.get('size') else ""
                             
-                            # Add button for file download
-                            keyboard.append([InlineKeyboardButton(
-                                f"{icon} {file['name'][:40]}{'...' if len(file['name']) > 40 else ''}{size}",
-                                callback_data=f"download|{file['id']}"
-                            )])
+                            # Add button for file download with action buttons
+                            keyboard.append([
+                                InlineKeyboardButton(
+                                    f"{icon} {file['name'][:40]}{'...' if len(file['name']) > 40 else ''}{size}",
+                                    callback_data=f"download|{file['id']}"
+                                ),
+                                InlineKeyboardButton("⭐", callback_data=f"fav_add|{file['id']}"),
+                                InlineKeyboardButton("➕", callback_data=f"queue_add|{file['id']}")
+                            ])
                         
                         # Add pagination buttons if needed
                         if len(regular_files) > ITEMS_PER_PAGE:
@@ -721,6 +742,217 @@ The bot checks every 2 days automatically.
             except Exception as e:
                 logger.error(f"ZIP creation error: {e}")
                 await query.message.reply_text(f"❌ Error creating ZIP: {str(e)}")
+        
+        elif action == "fav_add":
+            # Add to favorites
+            file_id = value
+            user_id = query.from_user.id
+            
+            try:
+                import sys
+                from pathlib import Path
+                bot_dir = Path(__file__).parent
+                if str(bot_dir) not in sys.path:
+                    sys.path.insert(0, str(bot_dir))
+                from services.drive_service import DriveService
+                
+                drive = DriveService()
+                file_info = drive.get_file_info(file_id)
+                
+                if file_info and db:
+                    is_folder = drive.is_folder(file_info)
+                    file_path = file_info.get('path', '')
+                    
+                    success = db.add_favorite(
+                        user_id=user_id,
+                        file_id=file_id,
+                        file_name=file_info['name'],
+                        file_path=file_path,
+                        is_folder=is_folder
+                    )
+                    
+                    if success:
+                        await query.answer("⭐ Added to favorites!")
+                    else:
+                        await query.answer("⚠️ Already in favorites!")
+                else:
+                    await query.answer("❌ Failed to add to favorites")
+                    
+            except Exception as e:
+                logger.error(f"Error adding favorite: {e}")
+                await query.answer("❌ Error adding to favorites")
+        
+        elif action == "fav_remove":
+            # Remove from favorites
+            file_id = value
+            user_id = query.from_user.id
+            
+            if db and db.remove_favorite(user_id, file_id):
+                await query.answer("✅ Removed from favorites")
+                # Refresh favorites list
+                await favorites_command(update, context)
+            else:
+                await query.answer("❌ Failed to remove from favorites")
+        
+        elif action == "queue_add":
+            # Add to download queue
+            file_id = value
+            user_id = query.from_user.id
+            
+            try:
+                import sys
+                from pathlib import Path
+                bot_dir = Path(__file__).parent
+                if str(bot_dir) not in sys.path:
+                    sys.path.insert(0, str(bot_dir))
+                from services.drive_service import DriveService
+                
+                drive = DriveService()
+                file_info = drive.get_file_info(file_id)
+                
+                if file_info and db:
+                    file_size = int(file_info.get('size', 0))
+                    success = db.add_to_queue(user_id, file_id, file_info['name'], file_size)
+                    
+                    if success:
+                        await query.answer("➕ Added to download queue!")
+                    else:
+                        await query.answer("❌ Failed to add to queue")
+                else:
+                    await query.answer("❌ File not found")
+                    
+            except Exception as e:
+                logger.error(f"Error adding to queue: {e}")
+                await query.answer("❌ Error adding to queue")
+        
+        elif action == "queue_download_all":
+            # Download all items in queue
+            user_id = query.from_user.id
+            
+            if not db:
+                await query.answer("❌ Database not available")
+                return
+            
+            queue_items = db.get_queue(user_id)
+            if not queue_items:
+                await query.answer("📋 Queue is empty")
+                return
+            
+            await query.answer("📥 Starting batch download...")
+            await query.message.reply_text(f"📥 Downloading {len(queue_items)} files from queue...")
+            
+            try:
+                # Import DriveService
+                import sys
+                from pathlib import Path
+                bot_dir = Path(__file__).parent
+                if str(bot_dir) not in sys.path:
+                    sys.path.insert(0, str(bot_dir))
+                from services.drive_service import DriveService
+                
+                drive = DriveService()
+                successful = 0
+                failed = 0
+                
+                for item in queue_items:
+                    try:
+                        file_id = item['file_id']
+                        file_name = item['file_name']
+                        
+                        # Download file from Drive
+                        file_content = drive.download_file(file_id)
+                        
+                        if file_content:
+                            # Send file to user
+                            file_content.seek(0)
+                            await query.message.reply_document(
+                                document=file_content,
+                                filename=file_name,
+                                caption=f"✅ {file_name}"
+                            )
+                            successful += 1
+                            
+                            # Record download in database
+                            if db:
+                                db.record_download(user_id, file_id, file_name)
+                            
+                            # Remove from queue after successful download
+                            if 'id' in item:
+                                db.remove_from_queue(item['id'])
+                        else:
+                            failed += 1
+                            logger.error(f"Failed to download {file_name}")
+                    
+                    except Exception as e:
+                        failed += 1
+                        logger.error(f"Error downloading {item.get('file_name', 'unknown')}: {e}")
+                
+                # Send completion message
+                result_msg = f"✅ Downloaded {successful}/{len(queue_items)} files"
+                if failed > 0:
+                    result_msg += f"\n❌ Failed: {failed}"
+                await query.message.reply_text(result_msg)
+                
+            except Exception as e:
+                logger.error(f"Error in batch download: {e}")
+                await query.message.reply_text("❌ Error during batch download")
+        
+        elif action == "queue_clear":
+            # Clear download queue
+            user_id = query.from_user.id
+            
+            if db and db.clear_queue(user_id):
+                await query.answer("🗑️ Queue cleared")
+                await queue_command(update, context)
+            else:
+                await query.answer("❌ Failed to clear queue")
+        
+        elif action == "shortcut_add":
+            # Add folder shortcut
+            folder_id = value
+            user_id = query.from_user.id
+            
+            try:
+                import sys
+                from pathlib import Path
+                bot_dir = Path(__file__).parent
+                if str(bot_dir) not in sys.path:
+                    sys.path.insert(0, str(bot_dir))
+                from services.drive_service import DriveService
+                
+                drive = DriveService()
+                folder_info = drive.get_file_info(folder_id)
+                
+                if folder_info and db:
+                    folder_path = folder_info.get('path', '')
+                    success = db.add_shortcut(
+                        user_id=user_id,
+                        folder_id=folder_id,
+                        folder_name=folder_info['name'],
+                        folder_path=folder_path
+                    )
+                    
+                    if success:
+                        await query.answer("🔖 Shortcut created!")
+                    else:
+                        await query.answer("⚠️ Shortcut already exists!")
+                else:
+                    await query.answer("❌ Failed to create shortcut")
+                    
+            except Exception as e:
+                logger.error(f"Error creating shortcut: {e}")
+                await query.answer("❌ Error creating shortcut")
+        
+        elif action == "shortcut_remove":
+            # Remove folder shortcut
+            folder_id = value
+            user_id = query.from_user.id
+            
+            if db and db.remove_shortcut(user_id, folder_id):
+                await query.answer("✅ Shortcut removed")
+                await shortcuts_command(update, context)
+            else:
+                await query.answer("❌ Failed to remove shortcut")
         
         elif action == "download":
             file_id = value
@@ -879,7 +1111,12 @@ The bot checks every 2 days automatically.
             stats_text = f"📊 **Your Statistics**\n\n"
             stats_text += f"👤 User: {user_data.get('first_name', 'Unknown')}\n"
             stats_text += f"📥 Total Downloads: {user_data.get('total_downloads', 0)}\n"
-            stats_text += f"📅 Joined: {user_data.get('joined_date', 'Unknown')[:10]}\n"
+            
+            # Format joined_date properly
+            joined_date = user_data.get('joined_date', 'Unknown')
+            if joined_date != 'Unknown':
+                joined_date = str(joined_date)[:10] if joined_date else 'Unknown'
+            stats_text += f"📅 Joined: {joined_date}\n"
             stats_text += f"🔔 Notifications: {'ON' if is_subscribed else 'OFF'}\n"
             
             if downloads:
@@ -930,9 +1167,9 @@ The bot checks every 2 days automatically.
             return
         
         try:
-            info_text = f"🗄️ **Database Information**\n\n"
-            info_text += f"**Type:** {db.db_type.upper()}\n"
-            info_text += f"**Connected:** {'✅ Yes' if db.connection else '❌ No'}\n"
+            info_text = "🗄️ <b>Database Information</b>\n\n"
+            info_text += f"<b>Type:</b> {db.db_type.upper()}\n"
+            info_text += f"<b>Connected:</b> {'✅ Yes' if db.connection else '❌ No'}\n"
             
             if db.db_type == 'postgresql':
                 # Get PostgreSQL version
@@ -940,28 +1177,239 @@ The bot checks every 2 days automatically.
                 cursor.execute("SELECT version();")
                 version = cursor.fetchone()
                 pg_version = version['version'].split(',')[0] if version else 'Unknown'
-                info_text += f"**Version:** {pg_version}\n"
+                info_text += f"<b>Version:</b> {pg_version}\n"
                 
                 # Get database name
                 cursor.execute("SELECT current_database();")
                 dbname = cursor.fetchone()
-                info_text += f"**Database:** {dbname['current_database'] if dbname else 'Unknown'}\n"
+                info_text += f"<b>Database:</b> {dbname['current_database'] if dbname else 'Unknown'}\n"
                 
                 # Test a simple query
                 cursor.execute("SELECT COUNT(*) as count FROM users")
                 user_count = cursor.fetchone()['count']
-                info_text += f"\n**Connection Test:** ✅ Success\n"
-                info_text += f"**Users in DB:** {user_count}\n"
+                info_text += f"\n<b>Connection Test:</b> ✅ Success\n"
+                info_text += f"<b>Users in DB:</b> {user_count}\n"
             else:
-                info_text += f"**Path:** {db.db_path}\n"
+                info_text += f"<b>Path:</b> {db.db_path}\n"
             
-            await update.message.reply_text(info_text, parse_mode='Markdown')
+            await update.message.reply_text(info_text, parse_mode='HTML')
         except Exception as e:
             await update.message.reply_text(f"❌ Database Error:\n{str(e)}")
+    
+    async def recent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /recent command - show recent downloads"""
+        user_id = update.effective_user.id
+        
+        if not db:
+            await update.message.reply_text("❌ Database not available.")
+            return
+        
+        try:
+            downloads = db.get_user_downloads(user_id)
+            
+            if not downloads:
+                await update.message.reply_text("📥 You haven't downloaded any files yet.\n\nUse /browse to explore files!")
+                return
+            
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            
+            # Show last 10 downloads
+            text = "📥 **Recent Downloads**\n\n"
+            keyboard = []
+            
+            for idx, dl in enumerate(downloads[:10], 1):
+                file_name = dl.get('file_name', 'Unknown')
+                file_id = dl.get('file_id')
+                download_date = dl.get('download_date', '')
+                
+                # Format date
+                if download_date:
+                    from datetime import datetime
+                    try:
+                        if isinstance(download_date, str):
+                            dt = datetime.fromisoformat(download_date.replace('Z', '+00:00'))
+                        else:
+                            dt = download_date
+                        
+                        # Relative time
+                        diff = datetime.now() - dt.replace(tzinfo=None)
+                        if diff.days == 0:
+                            time_str = "Today"
+                        elif diff.days == 1:
+                            time_str = "Yesterday"
+                        else:
+                            time_str = dt.strftime("%b %d")
+                    except:
+                        time_str = str(download_date)[:10]
+                else:
+                    time_str = "Unknown"
+                
+                text += f"{idx}. **{file_name}**\n   Downloaded: {time_str}\n\n"
+                
+                # Add button
+                if file_id:
+                    keyboard.append([
+                        InlineKeyboardButton(f"📥 {idx}. {file_name[:25]}...", callback_data=f"download|{file_id}"),
+                        InlineKeyboardButton("⭐", callback_data=f"fav_add|{file_id}")
+                    ])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+            
+        except Exception as e:
+            logger.error(f"Error in recent_command: {e}")
+            await update.message.reply_text(f"❌ Error fetching recent downloads: {str(e)}")
+    
+    async def favorites_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /favorites command - show user's bookmarks"""
+        user_id = update.effective_user.id
+        
+        if not db:
+            await update.message.reply_text("❌ Database not available.")
+            return
+        
+        try:
+            favorites = db.get_favorites(user_id)
+            
+            if not favorites:
+                await update.message.reply_text("⭐ You haven't bookmarked any files yet.\n\nClick the ⭐ button on any file to bookmark it!")
+                return
+            
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            
+            text = f"⭐ **Your Favorites** ({len(favorites)})\n\n"
+            keyboard = []
+            
+            for fav in favorites:
+                file_name = fav.get('file_name', 'Unknown')
+                file_id = fav.get('file_id')
+                file_path = fav.get('file_path', '')
+                is_folder = fav.get('is_folder', False)
+                
+                icon = "📁" if is_folder else "📄"
+                text += f"{icon} **{file_name}**\n"
+                if file_path:
+                    text += f"   {file_path}\n"
+                text += "\n"
+                
+                # Add buttons
+                if is_folder:
+                    keyboard.append([
+                        InlineKeyboardButton(f"📂 {file_name[:30]}", callback_data=f"folder|{file_id}"),
+                        InlineKeyboardButton("❌", callback_data=f"fav_remove|{file_id}")
+                    ])
+                else:
+                    keyboard.append([
+                        InlineKeyboardButton(f"📥 {file_name[:30]}", callback_data=f"download|{file_id}"),
+                        InlineKeyboardButton("❌", callback_data=f"fav_remove|{file_id}")
+                    ])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+            
+        except Exception as e:
+            logger.error(f"Error in favorites_command: {e}")
+            await update.message.reply_text(f"❌ Error fetching favorites: {str(e)}")
+    
+    async def queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /queue command - show download queue"""
+        user_id = update.effective_user.id
+        
+        if not db:
+            await update.message.reply_text("❌ Database not available.")
+            return
+        
+        try:
+            queue_items = db.get_queue(user_id)
+            
+            if not queue_items:
+                await update.message.reply_text("📋 Your download queue is empty.\n\nAdd files with the ➕ button while browsing!")
+                return
+            
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            
+            # Calculate total size
+            total_size = sum(item.get('file_size', 0) for item in queue_items)
+            
+            text = f"📋 **Download Queue** ({len(queue_items)} files)\n"
+            text += f"📊 Total Size: {format_file_size(total_size)}\n\n"
+            
+            keyboard = []
+            for idx, item in enumerate(queue_items, 1):
+                file_name = item.get('file_name', 'Unknown')
+                file_size = item.get('file_size', 0)
+                text += f"{idx}. {file_name} ({format_file_size(file_size)})\n"
+            
+            # Add action buttons
+            keyboard.append([
+                InlineKeyboardButton("📥 Download All", callback_data="queue_download_all"),
+                InlineKeyboardButton("🗑️ Clear Queue", callback_data="queue_clear")
+            ])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+            
+        except Exception as e:
+            logger.error(f"Error in queue_command: {e}")
+            await update.message.reply_text(f"❌ Error fetching queue: {str(e)}")
+    
+    async def shortcuts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /shortcuts command - show folder shortcuts"""
+        user_id = update.effective_user.id
+        
+        if not db:
+            await update.message.reply_text("❌ Database not available.")
+            return
+        
+        try:
+            shortcuts = db.get_shortcuts(user_id)
+            
+            if not shortcuts:
+                await update.message.reply_text("⚡ You haven't created any shortcuts yet.\n\nUse the 🔖 button on folders to create quick access!")
+                return
+            
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            
+            text = f"⚡ **Folder Shortcuts** ({len(shortcuts)})\n\n"
+            keyboard = []
+            
+            for shortcut in shortcuts:
+                folder_name = shortcut.get('shortcut_name') or shortcut.get('folder_name', 'Unknown')
+                folder_id = shortcut.get('folder_id')
+                folder_path = shortcut.get('folder_path', '')
+                
+                text += f"📁 **{folder_name}**\n"
+                if folder_path:
+                    text += f"   {folder_path}\n"
+                text += "\n"
+                
+                keyboard.append([
+                    InlineKeyboardButton(f"📂 {folder_name[:35]}", callback_data=f"folder|{folder_id}"),
+                    InlineKeyboardButton("❌", callback_data=f"shortcut_remove|{folder_id}")
+                ])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+            
+        except Exception as e:
+            logger.error(f"Error in shortcuts_command: {e}")
+            await update.message.reply_text(f"❌ Error fetching shortcuts: {str(e)}")
+    
+    def format_file_size(size_bytes: int) -> str:
+        """Format bytes to human readable size"""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.1f} TB"
     
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("admin_stats", admin_stats_command))
     application.add_handler(CommandHandler("dbinfo", dbinfo_command))
+    application.add_handler(CommandHandler("recent", recent_command))
+    application.add_handler(CommandHandler("favorites", favorites_command))
+    application.add_handler(CommandHandler("queue", queue_command))
+    application.add_handler(CommandHandler("shortcuts", shortcuts_command))
     application.add_handler(CommandHandler("notifications", notifications_command))
     application.add_handler(CommandHandler("check_now", check_now_command))
     

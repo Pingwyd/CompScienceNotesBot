@@ -503,3 +503,187 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to get stats: {e}")
             return {}
+
+    # Favorites operations
+    def add_favorite(self, user_id: int, file_id: str, file_name: str, 
+                     file_path: str = None, is_folder: bool = False) -> bool:
+        """Add a file/folder to user's favorites"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            
+            if self.db_type == 'postgresql':
+                cursor.execute(f"""
+                    INSERT INTO favorites (user_id, file_id, file_name, file_path, is_folder)
+                    VALUES ({p}, {p}, {p}, {p}, {p})
+                    ON CONFLICT (user_id, file_id) DO NOTHING
+                """, (user_id, file_id, file_name, file_path, is_folder))
+            else:
+                cursor.execute(f"""
+                    INSERT OR IGNORE INTO favorites 
+                    (user_id, file_id, file_name, file_path, is_folder)
+                    VALUES ({p}, {p}, {p}, {p}, {p})
+                """, (user_id, file_id, file_name, file_path, is_folder))
+            
+            self.connection.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to add favorite: {e}")
+            return False
+    
+    def remove_favorite(self, user_id: int, file_id: str) -> bool:
+        """Remove a file/folder from user's favorites"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            cursor.execute(f"""
+                DELETE FROM favorites WHERE user_id = {p} AND file_id = {p}
+            """, (user_id, file_id))
+            self.connection.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to remove favorite: {e}")
+            return False
+    
+    def get_favorites(self, user_id: int) -> List[Dict]:
+        """Get user's favorite files/folders"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            cursor.execute(f"""
+                SELECT * FROM favorites WHERE user_id = {p} ORDER BY added_date DESC
+            """, (user_id,))
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Failed to get favorites: {e}")
+            return []
+    
+    def is_favorite(self, user_id: int, file_id: str) -> bool:
+        """Check if file/folder is in favorites"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            cursor.execute(f"""
+                SELECT COUNT(*) as count FROM favorites 
+                WHERE user_id = {p} AND file_id = {p}
+            """, (user_id, file_id))
+            row = cursor.fetchone()
+            return row['count'] > 0 if row else False
+        except Exception as e:
+            logger.error(f"Failed to check favorite: {e}")
+            return False
+    
+    # Download Queue operations
+    def add_to_queue(self, user_id: int, file_id: str, file_name: str, file_size: int = 0) -> bool:
+        """Add file to download queue"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            cursor.execute(f"""
+                INSERT INTO download_queue (user_id, file_id, file_name, file_size)
+                VALUES ({p}, {p}, {p}, {p})
+            """, (user_id, file_id, file_name, file_size))
+            self.connection.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to add to queue: {e}")
+            return False
+    
+    def get_queue(self, user_id: int) -> List[Dict]:
+        """Get user's download queue"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            cursor.execute(f"""
+                SELECT * FROM download_queue 
+                WHERE user_id = {p} AND status = 'pending'
+                ORDER BY added_date ASC
+            """, (user_id,))
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Failed to get queue: {e}")
+            return []
+    
+    def remove_from_queue(self, queue_id: int) -> bool:
+        """Remove item from download queue"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            cursor.execute(f"DELETE FROM download_queue WHERE id = {p}", (queue_id,))
+            self.connection.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to remove from queue: {e}")
+            return False
+    
+    def clear_queue(self, user_id: int) -> bool:
+        """Clear user's download queue"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            cursor.execute(f"DELETE FROM download_queue WHERE user_id = {p}", (user_id,))
+            self.connection.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to clear queue: {e}")
+            return False
+    
+    # Shortcuts operations
+    def add_shortcut(self, user_id: int, folder_id: str, folder_name: str,
+                     folder_path: str = None, shortcut_name: str = None) -> bool:
+        """Add folder shortcut"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            name = shortcut_name or folder_name
+            
+            if self.db_type == 'postgresql':
+                cursor.execute(f"""
+                    INSERT INTO shortcuts (user_id, folder_id, folder_name, folder_path, shortcut_name)
+                    VALUES ({p}, {p}, {p}, {p}, {p})
+                    ON CONFLICT (user_id, folder_id) DO UPDATE SET shortcut_name = EXCLUDED.shortcut_name
+                """, (user_id, folder_id, folder_name, folder_path, name))
+            else:
+                cursor.execute(f"""
+                    INSERT OR REPLACE INTO shortcuts 
+                    (user_id, folder_id, folder_name, folder_path, shortcut_name)
+                    VALUES ({p}, {p}, {p}, {p}, {p})
+                """, (user_id, folder_id, folder_name, folder_path, name))
+            
+            self.connection.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to add shortcut: {e}")
+            return False
+    
+    def remove_shortcut(self, user_id: int, folder_id: str) -> bool:
+        """Remove folder shortcut"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            cursor.execute(f"""
+                DELETE FROM shortcuts WHERE user_id = {p} AND folder_id = {p}
+            """, (user_id, folder_id))
+            self.connection.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to remove shortcut: {e}")
+            return False
+    
+    def get_shortcuts(self, user_id: int) -> List[Dict]:
+        """Get user's folder shortcuts"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            cursor.execute(f"""
+                SELECT * FROM shortcuts WHERE user_id = {p} ORDER BY created_date DESC
+            """, (user_id,))
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Failed to get shortcuts: {e}")
+            return []
+
+
