@@ -202,7 +202,7 @@ def main():
     # Create the Application
     application = Application.builder().token(token).build()
     
-    # Initialize database
+    # Initialize database - PostgreSQL in production, SQLite for dev/testing
     db = None
     try:
         from pathlib import Path
@@ -212,21 +212,35 @@ def main():
         
         from utils.database import Database
         
-        # Create database in the project root
-        db_path = Path(__file__).parent.parent / "bot_data.db"
-        db = Database(str(db_path))
+        # Check if we're in production (Render sets DATABASE_URL)
+        database_url = os.getenv('DATABASE_URL')
         
-        if db.connect():
-            # Initialize schema
-            schema_path = Path(__file__).parent.parent / "database" / "schema.sql"
-            db.initialize_schema(str(schema_path))
-            logger.info("Database initialized successfully")
+        if database_url:
+            # Production: PostgreSQL only
+            logger.info("🚀 Production mode: Using PostgreSQL")
+            db = Database()  # Will auto-detect DATABASE_URL
+            if db.connect():
+                schema_path = Path(__file__).parent.parent / "database" / "schema.sql"
+                db.initialize_schema(str(schema_path))
+                logger.info(f"✅ PostgreSQL connected: {db.db_type}")
+            else:
+                logger.error("❌ CRITICAL: PostgreSQL connection failed in production!")
+                db = None
         else:
-            logger.warning("Database connection failed, using in-memory storage")
-            db = None
+            # Development: SQLite
+            logger.info("🔧 Development mode: Using SQLite")
+            db_path = Path(__file__).parent.parent / "bot_data.db"
+            db = Database(str(db_path))
+            if db.connect():
+                schema_path = Path(__file__).parent.parent / "database" / "schema.sql"
+                db.initialize_schema(str(schema_path))
+                logger.info(f"✅ SQLite connected: {db.db_path}")
+            else:
+                logger.error("❌ Database connection failed")
+                db = None
             
     except Exception as e:
-        logger.warning(f"Database setup failed: {e}. Using in-memory storage")
+        logger.error(f"❌ Database setup failed: {e}")
         db = None
     
     # Initialize notification service
@@ -1381,8 +1395,8 @@ The bot checks every 2 days automatically.
                 file_id = dl.get('file_id')
                 download_date = dl.get('download_date', '')
                 
-                # Escape HTML special characters in filename
-                file_name_escaped = file_name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                # Escape HTML special characters in filename - ensure string type
+                file_name_escaped = str(file_name).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 
                 # Format date
                 if download_date:
