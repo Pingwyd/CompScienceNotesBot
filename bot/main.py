@@ -422,6 +422,16 @@ The bot checks every 2 days automatically.
             
             if value == "subscribe":
                 if notification_service:
+                    # Ensure user exists before adding subscription
+                    user = update.effective_user
+                    if db:
+                        db.add_user(
+                            user_id=user.id,
+                            username=user.username,
+                            first_name=user.first_name,
+                            last_name=user.last_name,
+                            is_admin=user.id in ADMIN_IDS
+                        )
                     notification_service.add_subscriber(user_id)
                     await query.edit_message_text(
                         "✅ **Notifications Enabled!**\n\n"

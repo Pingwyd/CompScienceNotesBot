@@ -253,10 +253,24 @@ class NotificationService:
         time_since_check = datetime.now() - self.last_check_time
         return time_since_check >= timedelta(hours=check_interval_hours)
     
-    def add_subscriber(self, user_id: int):
-        """Add a user to the notification subscription list"""
+    def add_subscriber(self, user_id: int, user_info: dict = None):
+        """Add a user to the notification subscription list
+        
+        Args:
+            user_id: Telegram user ID
+            user_info: Optional dict with user details (username, first_name, last_name, is_admin)
+        """
         # Use database if available, otherwise in-memory
         if self.database:
+            # If user_info provided, ensure user exists in database first
+            if user_info:
+                self.database.add_user(
+                    user_id=user_id,
+                    username=user_info.get('username'),
+                    first_name=user_info.get('first_name'),
+                    last_name=user_info.get('last_name'),
+                    is_admin=user_info.get('is_admin', False)
+                )
             success = self.database.add_subscription(user_id)
             if success:
                 logger.info(f"User {user_id} subscribed to notifications (DB)")
