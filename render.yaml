@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: telegram-drive-bot
     env: python
     runtime: python

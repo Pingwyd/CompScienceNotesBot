@@ -5,11 +5,13 @@ Telegram Google Drive Bot - Main Entry Point
 import os
 import sys
 import logging
+import threading
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from flask import Flask
 
 # Load environment variables
 load_dotenv()
@@ -23,6 +25,8 @@ logging.basicConfig(
 logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 # Suppress noisy httpx logs (getUpdates)
 logging.getLogger('httpx').setLevel(logging.WARNING)
+# Suppress Flask logs (only show errors)
+logging.getLogger('werkzeug').setLevel(logging.ERROR)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +36,24 @@ ADMIN_IDS = [int(id.strip()) for id in os.getenv('ADMIN_USER_IDS', '').split(','
 # Notification service (global variable to be initialized)
 notification_service = None
 drive_service_instance = None  # Cache DriveService globally
+
+# Flask app for health check endpoint
+flask_app = Flask(__name__)
+
+@flask_app.route('/')
+def health_check():
+    """Health check endpoint for Render"""
+    return {'status': 'ok', 'service': 'telegram-bot'}, 200
+
+@flask_app.route('/health')
+def health():
+    """Alternative health check endpoint"""
+    return {'status': 'healthy'}, 200
+
+def run_flask():
+    """Run Flask server in a separate thread"""
+    port = int(os.getenv('PORT', 10000))
+    flask_app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /search command"""
@@ -901,6 +923,11 @@ The bot checks every 2 days automatically.
     
     logger.info(f"Scheduler started! Will check for new files every {check_interval_hours} hours.")
     logger.info("Bot started successfully!")
+    
+    # Start Flask server in a separate thread for Render health checks
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logger.info(f"Health check server started on port {os.getenv('PORT', 10000)}")
     
     # Run the bot until the user presses Ctrl-C
     application.run_polling(allowed_updates=True)
