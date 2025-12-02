@@ -12,6 +12,8 @@ A Telegram bot that monitors a public Google Drive containing course notes, allo
 
 ## Quick Start
 
+### Local Development
+
 1. Install dependencies:
    ```bash
    pip install -r requirements.txt
@@ -30,6 +32,19 @@ A Telegram bot that monitors a public Google Drive containing course notes, allo
    ```bash
    python bot/main.py
    ```
+
+### Deploy to Render
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment guide.
+
+**Quick Deploy:**
+1. Push repository to GitHub
+2. Create new Background Worker on Render
+3. Connect repository
+4. Add environment variables
+5. Deploy!
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com)
 
 ## User Commands
 

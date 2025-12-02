@@ -1,0 +1,21 @@
+services:
+  - type: worker
+    name: telegram-drive-bot
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot/main.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GOOGLE_DRIVE_LINK
+        sync: false
+      - key: ADMIN_USER_IDS
+        sync: false
+      - key: CHECK_INTERVAL_HOURS
+        value: "48"
+      - key: PYTHON_VERSION
+        value: "3.10.0"

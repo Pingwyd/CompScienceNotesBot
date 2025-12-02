@@ -1,5 +1,6 @@
 # Environment variables
 .env
+*.env
 
 # Python
 __pycache__/
@@ -27,6 +28,32 @@ wheels/
 venv/
 env/
 ENV/
+.venv
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+bot_data.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+temp/
+tmp/
 
 # Database
 *.db
@@ -60,3 +87,4 @@ GOOGLE_DRIVE_SETUP.md
 NOTIFICATION_SYSTEM.md
 QUICKSTART.md
 TASK.md
+DEPLOYMENT.md

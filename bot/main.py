@@ -31,6 +31,7 @@ ADMIN_IDS = [int(id.strip()) for id in os.getenv('ADMIN_USER_IDS', '').split(','
 
 # Notification service (global variable to be initialized)
 notification_service = None
+drive_service_instance = None  # Cache DriveService globally
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /search command"""
@@ -47,20 +48,22 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = await update.message.reply_text(f"🔍 Searching for '{query}'...", parse_mode='Markdown')
     
     try:
-        # Import DriveService
-        import sys
-        from pathlib import Path
-        bot_dir = Path(__file__).parent
-        if str(bot_dir) not in sys.path:
-            sys.path.insert(0, str(bot_dir))
-        from services.drive_service import DriveService
+        global drive_service_instance
         
-        drive = DriveService()
+        # Use cached DriveService or create new one
+        if drive_service_instance is None:
+            import sys
+            from pathlib import Path
+            bot_dir = Path(__file__).parent
+            if str(bot_dir) not in sys.path:
+                sys.path.insert(0, str(bot_dir))
+            from services.drive_service import DriveService
+            drive_service_instance = DriveService()
         
         # Run search in executor to avoid blocking
         import asyncio
         loop = asyncio.get_event_loop()
-        files = await loop.run_in_executor(None, drive.search_files, query)
+        files = await loop.run_in_executor(None, drive_service_instance.search_files, query)
         
         if not files:
             await message.edit_text(f"❌ No files found matching '{query}'.")
@@ -76,7 +79,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_path = file.get('path', '')
             display_name = f"{file_path}/{file['name']}" if file_path else file['name']
             
-            if drive.is_folder(file):
+            if drive_service_instance.is_folder(file):
                 # Import InlineKeyboardButton here to avoid circular imports or scope issues if not global
                 from telegram import InlineKeyboardButton
                 keyboard.append([InlineKeyboardButton(f"📁 {display_name}", callback_data=f"folder|{file['id']}")])
@@ -90,7 +93,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif name.endswith('.mp4'): icon = "🎥"
                 else: icon = "📎"
                 
-                size = f" ({drive.format_file_size(file.get('size'))})" if file.get('size') else ""
+                size = f" ({drive_service_instance.format_file_size(file.get('size'))})" if file.get('size') else ""
                 
                 # Add button for file download
                 button_text = f"{icon} {file['name']}{size}"
@@ -230,7 +233,7 @@ def main():
         """Handle the /start command"""
         user = update.effective_user
         
-        # Register user in database
+        # Register user in database and track activity
         if db:
             db.add_user(
                 user_id=user.id,
@@ -239,6 +242,7 @@ def main():
                 last_name=user.last_name,
                 is_admin=user.id in ADMIN_IDS
             )
+            db.update_last_active(user.id)
         
         welcome_text = f"""
 👋 Hello {user.first_name}!
@@ -580,6 +584,67 @@ The bot checks every 2 days automatically.
         except Exception as e:
             await message.edit_text(f"❌ Error during check: {str(e)}")
     
+    async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /stats command - show user statistics"""
+        user_id = update.effective_user.id
+        
+        # Track activity
+        if db:
+            db.update_last_active(user_id)
+        
+        if not db:
+            await update.message.reply_text("❌ Database not available.")
+            return
+        
+        try:
+            user_data = db.get_user(user_id)
+            downloads = db.get_user_downloads(user_id)
+            is_subscribed = notification_service.is_subscribed(user_id) if notification_service else False
+            
+            stats_text = f"📊 **Your Statistics**\n\n"
+            stats_text += f"👤 User: {user_data.get('first_name', 'Unknown')}\n"
+            stats_text += f"📥 Total Downloads: {user_data.get('total_downloads', 0)}\n"
+            stats_text += f"📅 Joined: {user_data.get('joined_date', 'Unknown')[:10]}\n"
+            stats_text += f"🔔 Notifications: {'ON' if is_subscribed else 'OFF'}\n"
+            
+            if downloads:
+                stats_text += f"\n**Recent Downloads:**\n"
+                for dl in downloads[:5]:
+                    file_name = dl.get('file_name', 'Unknown')
+                    stats_text += f"  • {file_name}\n"
+            
+            await update.message.reply_text(stats_text, parse_mode='Markdown')
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error fetching stats: {str(e)}")
+    
+    async def admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /admin_stats command - show bot statistics (Admin only)"""
+        user_id = update.effective_user.id
+        if user_id not in ADMIN_IDS:
+            await update.message.reply_text("⛔ You are not authorized to use this command.")
+            return
+        
+        if not db:
+            await update.message.reply_text("❌ Database not available.")
+            return
+        
+        try:
+            stats = db.get_stats()
+            active_7d = db.get_active_users_count(7)
+            
+            stats_text = f"📊 **Bot Statistics**\n\n"
+            stats_text += f"👥 Total Users: {stats.get('total_users', 0)}\n"
+            stats_text += f"✅ Active (7 days): {active_7d}\n"
+            stats_text += f"🔔 Subscribed: {stats.get('active_subscribers', 0)}\n"
+            stats_text += f"📥 Total Downloads: {stats.get('total_downloads', 0)}\n"
+            stats_text += f"📁 Tracked Files: {stats.get('total_files', 0)}\n"
+            
+            await update.message.reply_text(stats_text, parse_mode='Markdown')
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error fetching stats: {str(e)}")
+    
+    application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("admin_stats", admin_stats_command))
     application.add_handler(CommandHandler("notifications", notifications_command))
     application.add_handler(CommandHandler("check_now", check_now_command))
     

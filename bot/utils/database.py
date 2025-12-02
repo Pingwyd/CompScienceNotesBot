@@ -30,6 +30,12 @@ class Database:
             self.connection = sqlite3.connect(self.db_path)
             self.connection.row_factory = sqlite3.Row  # Access columns by name
             logger.info(f"Connected to database: {self.db_path}")
+            # Ensure migrations (add last_active column if missing)
+            try:
+                self._ensure_last_active_column()
+            except Exception:
+                # Non-fatal
+                pass
             return True
         except Exception as e:
             logger.error(f"Failed to connect to database: {e}")
@@ -113,6 +119,48 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to get users: {e}")
             return []
+
+    def _ensure_last_active_column(self):
+        """Ensure `last_active` column exists in users table (migration)"""
+        cursor = self.connection.cursor()
+        cursor.execute("PRAGMA table_info(users)")
+        cols = [r['name'] for r in cursor.fetchall()]
+        if 'last_active' not in cols:
+            logger.info("Adding 'last_active' column to users table")
+            cursor.execute("ALTER TABLE users ADD COLUMN last_active TIMESTAMP")
+            self.connection.commit()
+
+    def update_last_active(self, user_id: int) -> bool:
+        """Update the last_active timestamp for a user"""
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                UPDATE users SET last_active = CURRENT_TIMESTAMP WHERE user_id = ?
+            """, (user_id,))
+            # If user not present, insert a minimal record
+            if cursor.rowcount == 0:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO users (user_id, last_active) VALUES (?, CURRENT_TIMESTAMP)
+                """, (user_id,))
+            self.connection.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update last_active: {e}")
+            return False
+
+    def get_active_users_count(self, days: int = 7) -> int:
+        """Get count of users active within the last `days` days"""
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) as count FROM users 
+                WHERE last_active >= datetime('now', ?)
+            """, (f"-{days} days",))
+            row = cursor.fetchone()
+            return row['count'] if row else 0
+        except Exception as e:
+            logger.error(f"Failed to get active users count: {e}")
+            return 0
     
     # Subscription operations
     def add_subscription(self, user_id: int, folder_id: str = None) -> bool:
