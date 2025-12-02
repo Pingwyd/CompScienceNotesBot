@@ -1,9 +1,11 @@
 """
-Database utility module for managing SQLite database operations
+Database utility module for managing database operations
+Supports both SQLite (local) and PostgreSQL (production)
 """
 
 import sqlite3
 import logging
+import os
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -12,30 +14,54 @@ logger = logging.getLogger(__name__)
 
 
 class Database:
-    """Database manager for the bot"""
+    """Database manager for the bot - supports SQLite and PostgreSQL"""
     
     def __init__(self, db_path: str = "bot_data.db"):
         """
         Initialize database connection
         
         Args:
-            db_path: Path to SQLite database file
+            db_path: Path to SQLite database file (ignored if using PostgreSQL)
         """
         self.db_path = db_path
         self.connection = None
+        self.db_type = None  # 'sqlite' or 'postgresql'
         
+        # Check if PostgreSQL URL is provided
+        self.database_url = os.getenv('DATABASE_URL')
+        
+        # Auto-connect on initialization
+        self.connect()
+    
     def connect(self):
-        """Establish database connection"""
+        """Establish database connection (SQLite or PostgreSQL)"""
         try:
-            self.connection = sqlite3.connect(self.db_path)
-            self.connection.row_factory = sqlite3.Row  # Access columns by name
-            logger.info(f"Connected to database: {self.db_path}")
-            # Ensure migrations (add last_active column if missing)
+            if self.database_url:
+                # Use PostgreSQL
+                import psycopg2
+                from psycopg2.extras import RealDictCursor
+                
+                # Fix for Render PostgreSQL URLs (postgres:// -> postgresql://)
+                db_url = self.database_url
+                if db_url.startswith('postgres://'):
+                    db_url = db_url.replace('postgres://', 'postgresql://', 1)
+                
+                self.connection = psycopg2.connect(db_url, cursor_factory=RealDictCursor)
+                self.db_type = 'postgresql'
+                logger.info(f"Connected to PostgreSQL database")
+            else:
+                # Use SQLite
+                self.connection = sqlite3.connect(self.db_path)
+                self.connection.row_factory = sqlite3.Row
+                self.db_type = 'sqlite'
+                logger.info(f"Connected to SQLite database: {self.db_path}")
+            
+            # Ensure migrations
             try:
                 self._ensure_last_active_column()
-            except Exception:
-                # Non-fatal
-                pass
+            except Exception as e:
+                logger.warning(f"Migration warning: {e}")
+                
             return True
         except Exception as e:
             logger.error(f"Failed to connect to database: {e}")
@@ -62,9 +88,21 @@ class Database:
             with open(schema_path, 'r') as f:
                 schema_sql = f.read()
             
+            # Adjust schema for PostgreSQL if needed
+            if self.db_type == 'postgresql':
+                schema_sql = self._convert_schema_to_postgresql(schema_sql)
+            
             # Execute schema
             cursor = self.connection.cursor()
-            cursor.executescript(schema_sql)
+            
+            if self.db_type == 'postgresql':
+                # PostgreSQL doesn't support executescript
+                statements = [s.strip() for s in schema_sql.split(';') if s.strip()]
+                for statement in statements:
+                    cursor.execute(statement)
+            else:
+                cursor.executescript(schema_sql)
+                
             self.connection.commit()
             
             logger.info("Database schema initialized successfully")
@@ -74,11 +112,28 @@ class Database:
             logger.error(f"Failed to initialize schema: {e}")
             return False
     
+    def _convert_schema_to_postgresql(self, schema_sql: str) -> str:
+        """Convert SQLite schema to PostgreSQL compatible schema"""
+        # Replace SQLite specific syntax
+        schema_sql = schema_sql.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY')
+        schema_sql = schema_sql.replace('AUTOINCREMENT', '')
+        schema_sql = schema_sql.replace('IF NOT EXISTS', '')  # Will handle manually
+        
+        # PostgreSQL uses BOOLEAN instead of INTEGER for booleans
+        schema_sql = schema_sql.replace('BOOLEAN DEFAULT FALSE', 'BOOLEAN DEFAULT FALSE')
+        schema_sql = schema_sql.replace('BOOLEAN DEFAULT TRUE', 'BOOLEAN DEFAULT TRUE')
+        
+        return schema_sql
+    
     def close(self):
         """Close database connection"""
         if self.connection:
             self.connection.close()
             logger.info("Database connection closed")
+    
+    def _placeholder(self) -> str:
+        """Get SQL placeholder for current database type"""
+        return '%s' if self.db_type == 'postgresql' else '?'
     
     # User operations
     def add_user(self, user_id: int, username: str = None, 
@@ -87,11 +142,25 @@ class Database:
         """Add or update a user"""
         try:
             cursor = self.connection.cursor()
-            cursor.execute("""
-                INSERT OR REPLACE INTO users 
-                (user_id, username, first_name, last_name, is_admin)
-                VALUES (?, ?, ?, ?, ?)
-            """, (user_id, username, first_name, last_name, is_admin))
+            p = self._placeholder()
+            
+            if self.db_type == 'postgresql':
+                cursor.execute("""
+                    INSERT INTO users (user_id, username, first_name, last_name, is_admin)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        username = EXCLUDED.username,
+                        first_name = EXCLUDED.first_name,
+                        last_name = EXCLUDED.last_name,
+                        is_admin = EXCLUDED.is_admin
+                """, (user_id, username, first_name, last_name, is_admin))
+            else:
+                cursor.execute(f"""
+                    INSERT OR REPLACE INTO users 
+                    (user_id, username, first_name, last_name, is_admin)
+                    VALUES ({p}, {p}, {p}, {p}, {p})
+                """, (user_id, username, first_name, last_name, is_admin))
+                
             self.connection.commit()
             return True
         except Exception as e:
@@ -102,7 +171,8 @@ class Database:
         """Get user by ID"""
         try:
             cursor = self.connection.cursor()
-            cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+            placeholder = '%s' if self.db_type == 'postgresql' else '?'
+            cursor.execute(f"SELECT * FROM users WHERE user_id = {placeholder}", (user_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
         except Exception as e:
@@ -123,25 +193,50 @@ class Database:
     def _ensure_last_active_column(self):
         """Ensure `last_active` column exists in users table (migration)"""
         cursor = self.connection.cursor()
-        cursor.execute("PRAGMA table_info(users)")
-        cols = [r['name'] for r in cursor.fetchall()]
-        if 'last_active' not in cols:
-            logger.info("Adding 'last_active' column to users table")
-            cursor.execute("ALTER TABLE users ADD COLUMN last_active TIMESTAMP")
-            self.connection.commit()
+        
+        if self.db_type == 'postgresql':
+            # PostgreSQL way to check column exists
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns 
+                WHERE table_name='users' AND column_name='last_active'
+            """)
+            if not cursor.fetchone():
+                logger.info("Adding 'last_active' column to users table (PostgreSQL)")
+                cursor.execute("ALTER TABLE users ADD COLUMN last_active TIMESTAMP")
+                self.connection.commit()
+        else:
+            # SQLite way
+            cursor.execute("PRAGMA table_info(users)")
+            cols = [r['name'] for r in cursor.fetchall()]
+            if 'last_active' not in cols:
+                logger.info("Adding 'last_active' column to users table (SQLite)")
+                cursor.execute("ALTER TABLE users ADD COLUMN last_active TIMESTAMP")
+                self.connection.commit()
 
     def update_last_active(self, user_id: int) -> bool:
         """Update the last_active timestamp for a user"""
         try:
             cursor = self.connection.cursor()
-            cursor.execute("""
-                UPDATE users SET last_active = CURRENT_TIMESTAMP WHERE user_id = ?
+            placeholder = '%s' if self.db_type == 'postgresql' else '?'
+            
+            cursor.execute(f"""
+                UPDATE users SET last_active = CURRENT_TIMESTAMP WHERE user_id = {placeholder}
             """, (user_id,))
+            
             # If user not present, insert a minimal record
             if cursor.rowcount == 0:
-                cursor.execute("""
-                    INSERT OR IGNORE INTO users (user_id, last_active) VALUES (?, CURRENT_TIMESTAMP)
-                """, (user_id,))
+                if self.db_type == 'postgresql':
+                    cursor.execute("""
+                        INSERT INTO users (user_id, last_active) 
+                        VALUES (%s, CURRENT_TIMESTAMP)
+                        ON CONFLICT (user_id) DO NOTHING
+                    """, (user_id,))
+                else:
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO users (user_id, last_active) 
+                        VALUES (?, CURRENT_TIMESTAMP)
+                    """, (user_id,))
+                    
             self.connection.commit()
             return True
         except Exception as e:
@@ -152,10 +247,13 @@ class Database:
         """Get count of users active within the last `days` days"""
         try:
             cursor = self.connection.cursor()
-            cursor.execute("""
+            placeholder = '%s' if self.db_type == 'postgresql' else '?'
+            
+            cursor.execute(f"""
                 SELECT COUNT(*) as count FROM users 
-                WHERE last_active >= datetime('now', ?)
+                WHERE last_active >= datetime('now', {placeholder})
             """, (f"-{days} days",))
+            
             row = cursor.fetchone()
             return row['count'] if row else 0
         except Exception as e:
@@ -167,9 +265,10 @@ class Database:
         """Subscribe user to notifications"""
         try:
             cursor = self.connection.cursor()
-            cursor.execute("""
+            p = self._placeholder()
+            cursor.execute(f"""
                 INSERT INTO subscriptions (user_id, folder_id, is_active)
-                VALUES (?, ?, TRUE)
+                VALUES ({p}, {p}, TRUE)
             """, (user_id, folder_id))
             self.connection.commit()
             return True
@@ -181,18 +280,19 @@ class Database:
         """Unsubscribe user from notifications"""
         try:
             cursor = self.connection.cursor()
+            p = self._placeholder()
             if folder_id is None:
                 # Remove all subscriptions for user
-                cursor.execute("""
+                cursor.execute(f"""
                     UPDATE subscriptions 
                     SET is_active = FALSE 
-                    WHERE user_id = ? AND folder_id IS NULL
+                    WHERE user_id = {p} AND folder_id IS NULL
                 """, (user_id,))
             else:
-                cursor.execute("""
+                cursor.execute(f"""
                     UPDATE subscriptions 
                     SET is_active = FALSE 
-                    WHERE user_id = ? AND folder_id = ?
+                    WHERE user_id = {p} AND folder_id = {p}
                 """, (user_id, folder_id))
             self.connection.commit()
             return True
@@ -204,9 +304,10 @@ class Database:
         """Check if user is subscribed"""
         try:
             cursor = self.connection.cursor()
-            cursor.execute("""
+            p = self._placeholder()
+            cursor.execute(f"""
                 SELECT COUNT(*) as count FROM subscriptions 
-                WHERE user_id = ? AND folder_id IS ? AND is_active = TRUE
+                WHERE user_id = {p} AND folder_id IS {p} AND is_active = TRUE
             """, (user_id, folder_id))
             row = cursor.fetchone()
             return row['count'] > 0 if row else False
@@ -218,9 +319,10 @@ class Database:
         """Get all subscribed user IDs"""
         try:
             cursor = self.connection.cursor()
-            cursor.execute("""
+            p = self._placeholder()
+            cursor.execute(f"""
                 SELECT DISTINCT user_id FROM subscriptions 
-                WHERE is_active = TRUE AND folder_id IS ?
+                WHERE is_active = TRUE AND folder_id IS {p}
             """, (folder_id,))
             rows = cursor.fetchall()
             return [row['user_id'] for row in rows]
@@ -236,13 +338,34 @@ class Database:
         """Add or update a file record"""
         try:
             cursor = self.connection.cursor()
-            cursor.execute("""
-                INSERT OR REPLACE INTO files 
-                (file_id, name, parent_folder_id, file_type, size_bytes, 
-                 modified_time, download_url, is_folder, path)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (file_id, name, parent_folder_id, file_type, size_bytes,
-                  modified_time, download_url, is_folder, path))
+            p = self._placeholder()
+            
+            if self.db_type == 'postgresql':
+                cursor.execute(f"""
+                    INSERT INTO files 
+                    (file_id, name, parent_folder_id, file_type, size_bytes, 
+                     modified_time, download_url, is_folder, path)
+                    VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+                    ON CONFLICT (file_id) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        parent_folder_id = EXCLUDED.parent_folder_id,
+                        file_type = EXCLUDED.file_type,
+                        size_bytes = EXCLUDED.size_bytes,
+                        modified_time = EXCLUDED.modified_time,
+                        download_url = EXCLUDED.download_url,
+                        is_folder = EXCLUDED.is_folder,
+                        path = EXCLUDED.path
+                """, (file_id, name, parent_folder_id, file_type, size_bytes,
+                      modified_time, download_url, is_folder, path))
+            else:
+                cursor.execute(f"""
+                    INSERT OR REPLACE INTO files 
+                    (file_id, name, parent_folder_id, file_type, size_bytes, 
+                     modified_time, download_url, is_folder, path)
+                    VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+                """, (file_id, name, parent_folder_id, file_type, size_bytes,
+                      modified_time, download_url, is_folder, path))
+                      
             self.connection.commit()
             return True
         except Exception as e:
@@ -253,7 +376,8 @@ class Database:
         """Get file by ID"""
         try:
             cursor = self.connection.cursor()
-            cursor.execute("SELECT * FROM files WHERE file_id = ?", (file_id,))
+            p = self._placeholder()
+            cursor.execute(f"SELECT * FROM files WHERE file_id = {p}", (file_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
         except Exception as e:
@@ -276,16 +400,17 @@ class Database:
         """Log a file download"""
         try:
             cursor = self.connection.cursor()
-            cursor.execute("""
+            p = self._placeholder()
+            cursor.execute(f"""
                 INSERT INTO downloads (user_id, file_id, download_type)
-                VALUES (?, ?, ?)
+                VALUES ({p}, {p}, {p})
             """, (user_id, file_id, download_type))
             
             # Update user's total downloads
-            cursor.execute("""
+            cursor.execute(f"""
                 UPDATE users 
                 SET total_downloads = total_downloads + 1 
-                WHERE user_id = ?
+                WHERE user_id = {p}
             """, (user_id,))
             
             self.connection.commit()
@@ -298,11 +423,12 @@ class Database:
         """Get download history for a user"""
         try:
             cursor = self.connection.cursor()
-            cursor.execute("""
+            p = self._placeholder()
+            cursor.execute(f"""
                 SELECT d.*, f.name as file_name 
                 FROM downloads d
                 LEFT JOIN files f ON d.file_id = f.file_id
-                WHERE d.user_id = ?
+                WHERE d.user_id = {p}
                 ORDER BY d.download_date DESC
             """, (user_id,))
             rows = cursor.fetchall()
@@ -316,9 +442,10 @@ class Database:
         """Log a notification sent"""
         try:
             cursor = self.connection.cursor()
-            cursor.execute("""
+            p = self._placeholder()
+            cursor.execute(f"""
                 INSERT INTO notifications_sent (file_id, recipient_count)
-                VALUES (?, ?)
+                VALUES ({p}, {p})
             """, (file_id, recipient_count))
             self.connection.commit()
             return True
