@@ -969,6 +969,8 @@ The bot checks every 2 days automatically.
     check_interval_hours = int(os.getenv('CHECK_INTERVAL_HOURS', '48'))  # Default: 2 days
     
     scheduler = AsyncIOScheduler()
+    
+    # Add periodic file check
     scheduler.add_job(
         periodic_check_task,
         trigger=IntervalTrigger(hours=check_interval_hours),
@@ -977,6 +979,30 @@ The bot checks every 2 days automatically.
         name='Check for new files periodically',
         replace_existing=True
     )
+    
+    # Add keep-alive ping for Render (prevent service from sleeping)
+    async def keep_alive_ping():
+        """Ping own health endpoint to prevent Render from sleeping"""
+        try:
+            import aiohttp
+            port = os.getenv('PORT', '10000')
+            url = f"http://localhost:{port}/health"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=5) as response:
+                    if response.status == 200:
+                        logger.debug("Keep-alive ping successful")
+        except Exception as e:
+            logger.debug(f"Keep-alive ping failed: {e}")
+    
+    # Ping every 14 minutes to stay active on Render free tier
+    scheduler.add_job(
+        keep_alive_ping,
+        trigger=IntervalTrigger(minutes=14),
+        id='keep_alive',
+        name='Keep service active on Render',
+        replace_existing=True
+    )
+    
     scheduler.start()
     
     logger.info(f"Scheduler started! Will check for new files every {check_interval_hours} hours.")
