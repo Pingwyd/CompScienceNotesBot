@@ -704,5 +704,77 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to get shortcuts: {e}")
             return []
+    
+    # Support Ticket Functions
+    def create_support_ticket(self, user_id: int, username: str, message: str, error_context: str = None) -> bool:
+        """Create a new support ticket"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            cursor.execute(f"""
+                INSERT INTO support_tickets (user_id, username, message, error_context, status)
+                VALUES ({p}, {p}, {p}, {p}, 'open')
+            """, (user_id, username, message, error_context))
+            self.connection.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create support ticket: {e}")
+            return False
+    
+    def get_user_tickets(self, user_id: int) -> List[Dict]:
+        """Get all support tickets for a user"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            cursor.execute(f"""
+                SELECT * FROM support_tickets 
+                WHERE user_id = {p} 
+                ORDER BY created_date DESC
+            """, (user_id,))
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Failed to get user tickets: {e}")
+            return []
+    
+    def get_all_open_tickets(self) -> List[Dict]:
+        """Get all open support tickets (admin function)"""
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                SELECT * FROM support_tickets 
+                WHERE status IN ('open', 'in_progress')
+                ORDER BY created_date DESC
+            """)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Failed to get open tickets: {e}")
+            return []
+    
+    def update_ticket_status(self, ticket_id: int, status: str, admin_notes: str = None) -> bool:
+        """Update support ticket status (admin function)"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            
+            if status in ('resolved', 'closed'):
+                cursor.execute(f"""
+                    UPDATE support_tickets 
+                    SET status = {p}, admin_notes = {p}, resolved_date = CURRENT_TIMESTAMP
+                    WHERE id = {p}
+                """, (status, admin_notes, ticket_id))
+            else:
+                cursor.execute(f"""
+                    UPDATE support_tickets 
+                    SET status = {p}, admin_notes = {p}
+                    WHERE id = {p}
+                """, (status, admin_notes, ticket_id))
+            
+            self.connection.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update ticket status: {e}")
+            return False
 
 

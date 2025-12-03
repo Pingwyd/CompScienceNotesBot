@@ -188,6 +188,57 @@ async def periodic_check_task(application):
         logger.error(f"Error in periodic check task: {e}")
 
 
+def format_error_message(error: Exception, context: str = None, suggest_support: bool = True) -> str:
+    """
+    Format error messages with helpful context and suggestions
+    
+    Args:
+        error: The exception that occurred
+        context: Optional context about what was being attempted
+        suggest_support: Whether to suggest using /support
+    
+    Returns:
+        Formatted error message string
+    """
+    error_msg = "❌ **Error**\n\n"
+    
+    # Add context if provided
+    if context:
+        error_msg += f"**What happened:** {context}\n\n"
+    
+    # Parse common error types and provide helpful messages
+    error_str = str(error).lower()
+    
+    if "403" in error_str or "forbidden" in error_str:
+        error_msg += "**Problem:** Permission denied\n"
+        error_msg += "**Solution:** The file or folder may be private. Check sharing settings in Google Drive."
+    elif "404" in error_str or "not found" in error_str:
+        error_msg += "**Problem:** File or folder not found\n"
+        error_msg += "**Solution:** The item may have been moved or deleted. Try refreshing with /browse"
+    elif "429" in error_str or "rate limit" in error_str or "quota" in error_str:
+        error_msg += "**Problem:** Too many requests\n"
+        error_msg += "**Solution:** Please wait a few minutes before trying again."
+    elif "timeout" in error_str or "timed out" in error_str:
+        error_msg += "**Problem:** Connection timeout\n"
+        error_msg += "**Solution:** The request took too long. Try again or choose a smaller file."
+    elif "connection" in error_str or "network" in error_str:
+        error_msg += "**Problem:** Network connection issue\n"
+        error_msg += "**Solution:** Check your internet connection and try again."
+    elif "invalid" in error_str or "malformed" in error_str:
+        error_msg += "**Problem:** Invalid request\n"
+        error_msg += "**Solution:** Something went wrong with the request format. Try again."
+    else:
+        # Generic error
+        error_msg += f"**Details:** {str(error)}\n"
+    
+    # Add support suggestion
+    if suggest_support:
+        error_msg += "\n\n💡 **Still having issues?**\n"
+        error_msg += f"Report this with: `/support <describe what you were doing>`"
+    
+    return error_msg
+
+
 def main():
     """Start the bot."""
     global notification_service
@@ -312,6 +363,8 @@ Use /help to see all available commands.
 /queue - Manage download queue
 /notifications - Manage notification settings
 /stats - View your download statistics
+/support <message> - Report issues or get help
+/mytickets - View your support tickets
 """
         
         if is_admin:
@@ -320,6 +373,7 @@ Use /help to see all available commands.
 /admin_stats - View bot statistics
 /check_now - Manually check for new files
 /dbinfo - View database connection info
+/tickets - View all open support tickets
 """
         
         help_text += """
@@ -454,15 +508,11 @@ The bot checks every 2 days automatically.
             await message.edit_text(file_list_text, reply_markup=reply_markup)
             
         except ValueError as e:
-            error_msg = f"❌ **Configuration Error**\n\n{str(e)}\n\nPlease check your .env file."
+            error_msg = f"❌ **Configuration Error**\n\n{str(e)}\n\nPlease check your .env file and /support for help."
             await message.edit_text(error_msg)
         except Exception as e:
-            error_msg = f"❌ **Error**\n\n{str(e)}\n\n"
-            if "500" in str(e) or "Internal Error" in str(e):
-                error_msg += "_Google Drive is experiencing issues. Please try again in a few moments._"
-            elif "403" in str(e) or "permission" in str(e).lower():
-                error_msg += "_Permission denied. Check your Google Drive link is public._"
-            await message.edit_text(error_msg)
+            error_msg = format_error_message(e, "Browsing course materials", suggest_support=True)
+            await message.edit_text(error_msg, parse_mode='Markdown')
 
     async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle button clicks"""
@@ -642,7 +692,8 @@ The bot checks every 2 days automatically.
                 await query.edit_message_text(file_list_text, reply_markup=reply_markup, parse_mode='Markdown')
                 
             except Exception as e:
-                await query.edit_message_text(f"❌ Error loading folder: {str(e)}")
+                error_msg = format_error_message(e, "Loading folder contents", suggest_support=True)
+                await query.edit_message_text(error_msg, parse_mode='Markdown')
         
         elif action == "back":
             # Go back in navigation history
@@ -1407,6 +1458,160 @@ The bot checks every 2 days automatically.
             logger.error(f"Error in searchhere_command: {e}")
             await update.message.reply_text(f"❌ Error searching files: {str(e)}")
     
+    async def support_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /support command - report issues or get help"""
+        user_id = update.effective_user.id
+        
+        # Track activity
+        if db:
+            db.update_last_active(user_id)
+        
+        # Check if user is providing a message or just asking for info
+        if not context.args:
+            help_text = """
+🆘 **Support & Error Reporting**
+
+To report an issue or error, use:
+`/support <your message>`
+
+**Example:**
+`/support The download button isn't working for PDF files`
+
+**What to include:**
+• What you were trying to do
+• What error message you saw (if any)
+• Which file/folder you were accessing
+
+Your message will be sent to the admin for review.
+
+You can also check your previous support tickets with:
+`/mytickets`
+"""
+            await update.message.reply_text(help_text, parse_mode='Markdown')
+            return
+        
+        # User is submitting a support ticket
+        message = ' '.join(context.args)
+        username = update.effective_user.username or f"{update.effective_user.first_name}"
+        
+        if not db:
+            await update.message.reply_text("❌ Support system is currently unavailable. Please try again later.")
+            return
+        
+        try:
+            success = db.create_support_ticket(user_id, username, message)
+            
+            if success:
+                # Notify admins
+                admin_notification = f"""
+🆘 **New Support Ticket**
+
+👤 User: @{username} (ID: {user_id})
+📝 Message: {message}
+
+Use /tickets to view all open tickets.
+"""
+                for admin_id in ADMIN_IDS:
+                    try:
+                        await application.bot.send_message(chat_id=admin_id, text=admin_notification, parse_mode='Markdown')
+                    except Exception:
+                        pass  # Admin might have blocked the bot
+                
+                await update.message.reply_text(
+                    "✅ **Support ticket created!**\n\n"
+                    "Your message has been sent to the admin team. "
+                    "We'll review it and get back to you as soon as possible.\n\n"
+                    "Use `/mytickets` to view your submitted tickets.",
+                    parse_mode='Markdown'
+                )
+            else:
+                await update.message.reply_text("❌ Failed to create support ticket. Please try again.")
+        except Exception as e:
+            logger.error(f"Error creating support ticket: {e}")
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+    
+    async def mytickets_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /mytickets command - view user's support tickets"""
+        user_id = update.effective_user.id
+        
+        if not db:
+            await update.message.reply_text("❌ Database not available.")
+            return
+        
+        try:
+            tickets = db.get_user_tickets(user_id)
+            
+            if not tickets:
+                await update.message.reply_text("📭 You haven't submitted any support tickets yet.")
+                return
+            
+            # Build ticket list
+            text = "🎫 **Your Support Tickets**\n\n"
+            
+            for ticket in tickets:
+                status_emoji = {
+                    'open': '🟢',
+                    'in_progress': '🟡',
+                    'resolved': '✅',
+                    'closed': '⚫'
+                }.get(ticket['status'], '❓')
+                
+                text += f"{status_emoji} **Ticket #{ticket['id']}** - {ticket['status'].title()}\n"
+                text += f"📅 Created: {ticket['created_date'][:16]}\n"
+                text += f"📝 Message: {ticket['message'][:100]}{'...' if len(ticket['message']) > 100 else ''}\n"
+                
+                if ticket.get('admin_notes'):
+                    text += f"💬 Admin: {ticket['admin_notes']}\n"
+                
+                text += "\n"
+            
+            await update.message.reply_text(text, parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Error retrieving tickets: {e}")
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+    
+    async def tickets_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /tickets command - view all open tickets (Admin only)"""
+        user_id = update.effective_user.id
+        
+        if user_id not in ADMIN_IDS:
+            await update.message.reply_text("⛔ You are not authorized to use this command.")
+            return
+        
+        if not db:
+            await update.message.reply_text("❌ Database not available.")
+            return
+        
+        try:
+            tickets = db.get_all_open_tickets()
+            
+            if not tickets:
+                await update.message.reply_text("✅ No open support tickets!")
+                return
+            
+            text = f"🎫 **Open Support Tickets** ({len(tickets)})\n\n"
+            
+            for ticket in tickets[:20]:  # Limit to 20 most recent
+                status_emoji = {'open': '🟢', 'in_progress': '🟡'}.get(ticket['status'], '❓')
+                
+                text += f"{status_emoji} **Ticket #{ticket['id']}**\n"
+                text += f"👤 User: @{ticket['username']} (ID: {ticket['user_id']})\n"
+                text += f"📅 {ticket['created_date'][:16]}\n"
+                text += f"📝 {ticket['message']}\n"
+                
+                if ticket.get('error_context'):
+                    text += f"⚠️ Context: {ticket['error_context'][:100]}\n"
+                
+                text += "\n"
+            
+            if len(tickets) > 20:
+                text += f"\n_Showing 20 of {len(tickets)} tickets_"
+            
+            await update.message.reply_text(text, parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Error retrieving all tickets: {e}")
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+    
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("admin_stats", admin_stats_command))
     application.add_handler(CommandHandler("dbinfo", dbinfo_command))
@@ -1415,6 +1620,9 @@ The bot checks every 2 days automatically.
     application.add_handler(CommandHandler("searchhere", searchhere_command))
     application.add_handler(CommandHandler("notifications", notifications_command))
     application.add_handler(CommandHandler("check_now", check_now_command))
+    application.add_handler(CommandHandler("support", support_command))
+    application.add_handler(CommandHandler("mytickets", mytickets_command))
+    application.add_handler(CommandHandler("tickets", tickets_command))
     
     # Set up scheduler for periodic checks
     check_interval_hours = int(os.getenv('CHECK_INTERVAL_HOURS', '48'))  # Default: 2 days

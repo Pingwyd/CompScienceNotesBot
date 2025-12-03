@@ -90,6 +90,20 @@ CREATE TABLE IF NOT EXISTS shortcuts (
     UNIQUE(user_id, folder_id)
 );
 
+-- Support Tickets table
+CREATE TABLE IF NOT EXISTS support_tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    username TEXT,
+    message TEXT NOT NULL,
+    error_context TEXT,  -- Optional: stack trace, command used, etc.
+    status TEXT DEFAULT 'open',  -- 'open', 'in_progress', 'resolved', 'closed'
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resolved_date TIMESTAMP,
+    admin_notes TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_files_parent ON files(parent_folder_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_id);
@@ -98,3 +112,5 @@ CREATE INDEX IF NOT EXISTS idx_files_modified ON files(modified_time);
 CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
 CREATE INDEX IF NOT EXISTS idx_queue_user ON download_queue(user_id);
 CREATE INDEX IF NOT EXISTS idx_shortcuts_user ON shortcuts(user_id);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status);
