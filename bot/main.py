@@ -833,6 +833,9 @@ The bot checks every 2 days automatically.
                 
                 # Create ZIP in memory
                 zip_buffer = BytesIO()
+                successful_files = 0
+                failed_files = 0
+                
                 with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
                     for idx, file in enumerate(file_list, 1):
                         try:
@@ -843,21 +846,48 @@ The bot checks every 2 days automatically.
                                 # Use file path if available, otherwise just name
                                 arc_name = file.get('path', file['name'])
                                 # Read the content as bytes from BytesIO
-                                file_bytes = file_content.getvalue()
-                                zip_file.writestr(arc_name, file_bytes)
+                                file_bytes = file_content.read()
+                                
+                                if file_bytes:  # Only add if we have content
+                                    zip_file.writestr(arc_name, file_bytes)
+                                    successful_files += 1
+                                    logger.info(f"Added to ZIP: {arc_name} ({len(file_bytes)} bytes)")
+                                else:
+                                    failed_files += 1
+                                    logger.warning(f"File {file['name']} has no content")
+                            else:
+                                failed_files += 1
+                                logger.warning(f"Failed to download {file['name']}")
                         except Exception as e:
-                            logger.warning(f"Failed to add {file['name']} to ZIP: {e}")
+                            failed_files += 1
+                            logger.error(f"Failed to add {file['name']} to ZIP: {e}")
                 
+                logger.info(f"ZIP creation complete: {successful_files} succeeded, {failed_files} failed")
+                
+                # Important: Seek to beginning after ZIP is finalized
                 zip_buffer.seek(0)
+                zip_size = len(zip_buffer.getvalue())
                 
+                # Verify ZIP has content
+                if zip_size < 100:  # Empty or corrupted ZIP
+                    await status_msg.edit_text(f"❌ Error: ZIP file is empty or corrupted (size: {zip_size} bytes)")
+                    logger.error(f"ZIP creation failed - size only {zip_size} bytes for {len(file_list)} files")
+                    return
+                
+                logger.info(f"Created ZIP: {zip_size} bytes for {successful_files}/{len(file_list)} files")
                 await status_msg.edit_text("📤 Uploading ZIP to Telegram...")
+                
+                # Build caption with success/failure info
+                caption = f"📦 {folder_name}.zip\n📊 {successful_files} files ({drive.format_file_size(zip_size)})"
+                if failed_files > 0:
+                    caption += f"\n⚠️ {failed_files} files failed to download"
                 
                 # Send ZIP file
                 await context.bot.send_document(
                     chat_id=query.message.chat_id,
                     document=zip_buffer,
                     filename=f"{folder_name}.zip",
-                    caption=f"📦 {folder_name}.zip\n📊 {len(file_list)} files ({drive.format_file_size(total_size)})"
+                    caption=caption
                 )
                 
                 # Log download in database
