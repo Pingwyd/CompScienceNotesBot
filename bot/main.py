@@ -385,18 +385,6 @@ The bot checks every 2 days automatically.
             folders = [f for f in files if drive.is_folder(f)]
             regular_files = [f for f in files if not drive.is_folder(f)]
             
-            # Apply filter if set
-            file_filter = context.user_data.get('file_filter', 'all')
-            if file_filter != 'all' and regular_files:
-                if file_filter == 'pdf':
-                    regular_files = [f for f in regular_files if f['name'].lower().endswith('.pdf')]
-                elif file_filter == 'doc':
-                    regular_files = [f for f in regular_files if f['name'].lower().endswith(('.doc', '.docx'))]
-                elif file_filter == 'img':
-                    regular_files = [f for f in regular_files if f['name'].lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp'))]
-                elif file_filter == 'video':
-                    regular_files = [f for f in regular_files if f['name'].lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))]
-            
             # Pagination settings
             ITEMS_PER_PAGE = 15
             page = context.user_data.get('current_page', 0)
@@ -406,22 +394,6 @@ The bot checks every 2 days automatically.
             
             # Breadcrumb navigation (root level)
             file_list_text = "📍 **Home** > Course Materials\n\n"
-            
-            # Add filter buttons for file types
-            if regular_files:
-                filter_buttons = [
-                    InlineKeyboardButton("📄 PDFs", callback_data="filter|pdf"),
-                    InlineKeyboardButton("📝 Docs", callback_data="filter|doc"),
-                    InlineKeyboardButton("🖼️ Images", callback_data="filter|img"),
-                    InlineKeyboardButton("🎥 Videos", callback_data="filter|video")
-                ]
-                keyboard.append(filter_buttons)
-                filter_buttons2 = [
-                    InlineKeyboardButton("📎 All Files", callback_data="filter|all"),
-                    InlineKeyboardButton("🔍 Search", callback_data="search|prompt")
-                ]
-                keyboard.append(filter_buttons2)
-                file_list_text += "_Use filters above to narrow results_\n\n"
             
             # Add folders first (no pagination for folders, usually not many)
             if folders:
@@ -459,7 +431,6 @@ The bot checks every 2 days automatically.
                             f"{icon} {file['name'][:35]}{'...' if len(file['name']) > 35 else ''}",
                             callback_data=f"download|{file['id']}"
                         ),
-                        InlineKeyboardButton("ℹ️", callback_data=f"info|{file['id']}"),
                         InlineKeyboardButton("➕", callback_data=f"queue_add|{file['id']}")
                     ])
                 
@@ -593,18 +564,6 @@ The bot checks every 2 days automatically.
                 folders = [f for f in files if drive.is_folder(f)]
                 regular_files = [f for f in files if not drive.is_folder(f)]
                 
-                # Apply filter if set
-                file_filter = context.user_data.get('file_filter', 'all')
-                if file_filter != 'all' and regular_files:
-                    if file_filter == 'pdf':
-                        regular_files = [f for f in regular_files if f['name'].lower().endswith('.pdf')]
-                    elif file_filter == 'doc':
-                        regular_files = [f for f in regular_files if f['name'].lower().endswith(('.doc', '.docx'))]
-                    elif file_filter == 'img':
-                        regular_files = [f for f in regular_files if f['name'].lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp'))]
-                    elif file_filter == 'video':
-                        regular_files = [f for f in regular_files if f['name'].lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))]
-                
                 # Pagination settings
                 ITEMS_PER_PAGE = 15
                 page = context.user_data.get('current_page', 0)
@@ -626,21 +585,6 @@ The bot checks every 2 days automatically.
                 nav_buttons.append(InlineKeyboardButton("📦 Download as ZIP", callback_data=f"zipfolder|{folder_id}"))
                 if nav_buttons:
                     keyboard.append(nav_buttons)
-                
-                # Add filter buttons if there are files
-                if regular_files:
-                    filter_buttons = [
-                        InlineKeyboardButton("📄 PDFs", callback_data="filter|pdf"),
-                        InlineKeyboardButton("📝 Docs", callback_data="filter|doc"),
-                        InlineKeyboardButton("🖼️ Images", callback_data="filter|img"),
-                        InlineKeyboardButton("🎥 Videos", callback_data="filter|video")
-                    ]
-                    keyboard.append(filter_buttons)
-                    filter_buttons2 = [
-                        InlineKeyboardButton("📎 All Files", callback_data="filter|all"),
-                        InlineKeyboardButton("🔍 Search", callback_data="search|prompt")
-                    ]
-                    keyboard.append(filter_buttons2)
                 
                 if not files:
                     file_list_text += "_(Empty folder)_"
@@ -678,7 +622,6 @@ The bot checks every 2 days automatically.
                                     f"{icon} {file['name'][:35]}{'...' if len(file['name']) > 35 else ''}",
                                     callback_data=f"download|{file['id']}"
                                 ),
-                                InlineKeyboardButton("ℹ️", callback_data=f"info|{file['id']}"),
                                 InlineKeyboardButton("➕", callback_data=f"queue_add|{file['id']}")
                             ])
                         
@@ -881,7 +824,7 @@ The bot checks every 2 days automatically.
                     if success:
                         await query.answer("➕ Added to download queue!")
                     else:
-                        await query.answer("❌ Failed to add to queue")
+                        await query.answer("⚠️ Already in queue")
                 else:
                     await query.answer("❌ File not found")
                     
@@ -1006,87 +949,6 @@ The bot checks every 2 days automatically.
             except Exception as e:
                 logger.error(f"Error creating shortcut: {e}")
                 await query.answer("❌ Error creating shortcut")
-        
-        elif action == "info":
-            # Show file preview/info
-            file_id = value
-            
-            try:
-                import sys
-                from pathlib import Path
-                from datetime import datetime
-                bot_dir = Path(__file__).parent
-                if str(bot_dir) not in sys.path:
-                    sys.path.insert(0, str(bot_dir))
-                from services.drive_service import DriveService
-                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                
-                drive = DriveService()
-                file_info = drive.get_file_info(file_id)
-                
-                if not file_info:
-                    await query.answer("❌ File not found")
-                    return
-                
-                # Build info message
-                info_text = f"ℹ️ **File Information**\n\n"
-                info_text += f"**Name:** {file_info['name']}\n"
-                
-                if file_info.get('size'):
-                    size_str = format_file_size(int(file_info['size']))
-                    info_text += f"**Size:** {size_str}\n"
-                
-                if file_info.get('mimeType'):
-                    mime = file_info['mimeType']
-                    # Simplify mime type
-                    if 'pdf' in mime:
-                        file_type = "PDF Document"
-                    elif 'word' in mime or 'document' in mime:
-                        file_type = "Word Document"
-                    elif 'image' in mime:
-                        file_type = "Image"
-                    elif 'video' in mime:
-                        file_type = "Video"
-                    elif 'text' in mime:
-                        file_type = "Text File"
-                    else:
-                        file_type = mime.split('/')[-1].upper()
-                    info_text += f"**Type:** {file_type}\n"
-                
-                if file_info.get('modifiedTime'):
-                    # Parse and format date
-                    modified = file_info['modifiedTime']
-                    try:
-                        dt = datetime.fromisoformat(modified.replace('Z', '+00:00'))
-                        date_str = dt.strftime("%B %d, %Y at %I:%M %p")
-                        info_text += f"**Modified:** {date_str}\n"
-                    except:
-                        info_text += f"**Modified:** {modified[:10]}\n"
-                
-                # Add download button
-                keyboard = [
-                    [InlineKeyboardButton("📥 Download", callback_data=f"download|{file_id}")],
-                    [InlineKeyboardButton("➕ Queue", callback_data=f"queue_add|{file_id}")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await query.message.reply_text(info_text, reply_markup=reply_markup, parse_mode='Markdown')
-                await query.answer()
-                
-            except Exception as e:
-                logger.error(f"Error fetching file info: {e}")
-                await query.answer("❌ Error fetching file info")
-        
-        elif action == "filter":
-            # Filter files by type
-            filter_type = value
-            
-            # Store filter in context
-            context.user_data['file_filter'] = filter_type
-            
-            # Re-render current view
-            await query.answer(f"🔍 Filtering: {filter_type.upper()}")
-            await browse_command(update, context)
         
         elif action == "search":
             # Initiate search in current folder
@@ -1532,7 +1394,6 @@ The bot checks every 2 days automatically.
                         f"{icon} {file['name'][:35]}{'...' if len(file['name']) > 35 else ''}",
                         callback_data=f"download|{file['id']}"
                     ),
-                    InlineKeyboardButton("ℹ️", callback_data=f"info|{file['id']}"),
                     InlineKeyboardButton("➕", callback_data=f"queue_add|{file['id']}")
                 ])
             

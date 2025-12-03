@@ -576,8 +576,12 @@ class Database:
     
     # Download Queue operations
     def add_to_queue(self, user_id: int, file_id: str, file_name: str, file_size: int = 0) -> bool:
-        """Add file to download queue"""
+        """Add file to download queue. Returns False if already in queue."""
         try:
+            # First check if file is already in queue
+            if self.is_in_queue(user_id, file_id):
+                return False
+            
             cursor = self.connection.cursor()
             p = self._placeholder()
             cursor.execute(f"""
@@ -588,6 +592,21 @@ class Database:
             return True
         except Exception as e:
             logger.error(f"Failed to add to queue: {e}")
+            return False
+    
+    def is_in_queue(self, user_id: int, file_id: str) -> bool:
+        """Check if file is already in user's queue"""
+        try:
+            cursor = self.connection.cursor()
+            p = self._placeholder()
+            cursor.execute(f"""
+                SELECT COUNT(*) as count FROM download_queue 
+                WHERE user_id = {p} AND file_id = {p} AND status = 'pending'
+            """, (user_id, file_id))
+            row = cursor.fetchone()
+            return row['count'] > 0 if row else False
+        except Exception as e:
+            logger.error(f"Failed to check queue: {e}")
             return False
     
     def get_queue(self, user_id: int) -> List[Dict]:
