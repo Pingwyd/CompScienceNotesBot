@@ -9,7 +9,6 @@ import threading
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from telegram.helpers import escape_markdown
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from flask import Flask
@@ -777,13 +776,68 @@ The bot checks every 2 days automatically.
                     # Back to root
                     await browse_command(update, context)
                 else:
-                    # Go to parent folder
+                    # Go to parent folder - manually navigate instead of simulating click
                     parent = context.user_data['nav_history'][-1]
-                    context.user_data['nav_history'].pop()  # Will be re-added by folder handler
+                    parent_id = parent['id']
+                    context.user_data['nav_history'].pop()  # Will be re-added when navigating
                     
-                    # Simulate clicking on parent folder
-                    query.data = f"folder|{parent['id']}"
-                    await button_click(update, context)
+                    # Navigate to parent by calling folder logic directly
+                    # Re-process as folder navigation
+                    import sys
+                    from pathlib import Path
+                    bot_dir = Path(__file__).parent
+                    if str(bot_dir) not in sys.path:
+                        sys.path.insert(0, str(bot_dir))
+                    from services.drive_service import DriveService
+                    
+                    drive = DriveService()
+                    context.user_data['current_page'] = 0
+                    context.user_data['nav_history'].append(parent)
+                    
+                    # List files and render folder view
+                    files = drive.list_files(parent_id)
+                    folders = [f for f in files if drive.is_folder(f)]
+                    regular_files = [f for f in files if not drive.is_folder(f)]
+                    
+                    ITEMS_PER_PAGE = 15
+                    page = 0
+                    keyboard = []
+                    breadcrumb = "📍 **Home**"
+                    for nav in context.user_data['nav_history']:
+                        breadcrumb += f" > {nav['name']}"
+                    file_list_text = f"{breadcrumb}\n\n"
+                    
+                    nav_buttons = []
+                    if len(context.user_data['nav_history']) > 0:
+                        nav_buttons.append(InlineKeyboardButton("⬅️ Back", callback_data="back|back"))
+                    nav_buttons.append(InlineKeyboardButton("📦 Download as ZIP", callback_data=f"zipfolder|{parent_id}"))
+                    if nav_buttons:
+                        keyboard.append(nav_buttons)
+                    
+                    if folders:
+                        file_list_text += "📁 **Folders:**\n"
+                        for folder in folders:
+                            keyboard.append([InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}")])  
+                        file_list_text += "\n"
+                    
+                    if regular_files:
+                        file_list_text += "📄 **Files:**\n"
+                        for file in regular_files[:ITEMS_PER_PAGE]:
+                            name = file['name'].lower()
+                            if name.endswith('.pdf'): icon = "📄"
+                            elif name.endswith(('.doc', '.docx')): icon = "📝"
+                            elif name.endswith(('.jpg', '.jpeg', '.png')): icon = "🖼️"
+                            elif name.endswith('.mp4'): icon = "🎥"
+                            else: icon = "📎"
+                            keyboard.append([
+                                InlineKeyboardButton(f"{icon} {file['name'][:35]}{'...' if len(file['name']) > 35 else ''}", callback_data=f"download|{file['id']}"),
+                                InlineKeyboardButton("➕", callback_data=f"queue_add|{file['id']}")
+                            ])
+                    
+                    file_list_text += f"\n\n📊 Total: {len(folders)} folders, {len(regular_files)} files"
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    await query.edit_message_text(file_list_text, reply_markup=reply_markup, parse_mode='Markdown')
+                    return
             else:
                 await browse_command(update, context)
         
@@ -844,7 +898,12 @@ The bot checks every 2 days automatically.
                             file_content = drive.download_file(file['id'])
                             if file_content:
                                 # Use file path if available, otherwise just name
-                                arc_name = file.get('path', file['name'])
+                                # Handle cases where path might be None or empty
+                                file_path = file.get('path')
+                                if file_path and isinstance(file_path, str) and file_path.strip():
+                                    arc_name = file_path
+                                else:
+                                    arc_name = file['name']
                                 # Read the content as bytes from BytesIO
                                 file_bytes = file_content.read()
                                 
@@ -1444,16 +1503,16 @@ The bot checks every 2 days automatically.
             # Calculate total size
             total_size = sum(item.get('file_size', 0) for item in queue_items)
             
-            text = f"📋 **Download Queue** ({len(queue_items)} files)\n"
+            # Use HTML instead of Markdown to avoid parsing issues
+            text = f"📋 <b>Download Queue</b> ({len(queue_items)} files)\n"
             text += f"📊 Total Size: {format_file_size(total_size)}\n\n"
             
             keyboard = []
             for idx, item in enumerate(queue_items, 1):
                 file_name = item.get('file_name', 'Unknown')
-                # Escape special markdown characters in file name
-                file_name_escaped = escape_markdown(file_name, version=2)
                 file_size = item.get('file_size', 0)
-                text += f"{idx}\\. {file_name_escaped} ({escape_markdown(format_file_size(file_size), version=2)})\n"
+                # Simple text, no special formatting needed
+                text += f"{idx}. {file_name} ({format_file_size(file_size)})\n"
             
             # Add action buttons
             keyboard.append([
@@ -1462,7 +1521,7 @@ The bot checks every 2 days automatically.
             ])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='MarkdownV2')
+            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='HTML')
             
         except Exception as e:
             logger.error(f"Error in queue_command: {e}")
