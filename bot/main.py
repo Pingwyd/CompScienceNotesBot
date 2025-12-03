@@ -9,6 +9,7 @@ import threading
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.helpers import escape_markdown
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from flask import Flask
@@ -318,6 +319,8 @@ def main():
     # Add command handlers
     async def start_command(update, context):
         """Handle the /start command"""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        
         user = update.effective_user
         
         # Register user in database and track activity
@@ -331,23 +334,57 @@ def main():
             )
             db.update_last_active(user.id)
         
+        # Check if this is a new user (first time)
+        is_new_user = False
+        if db:
+            user_data = db.get_user(user.id)
+            is_new_user = user_data and user_data.get('total_downloads', 0) == 0
+        
         welcome_text = f"""
-👋 Hello {user.first_name}!
+👋 **Welcome {user.first_name}!**
 
-Welcome to the Course Notes Bot!
+I'm your Course Notes Bot - your gateway to course materials!
 
-I can help you:
-📁 Browse course materials
-🔍 Search for files
-📥 Download files and folders
-🔔 Get notified about new content
+🎯 **What I Can Do:**
 
-Use /help to see all available commands.
-        """
-        await update.message.reply_text(welcome_text)
+📁 **Browse** - Navigate through folders and files
+🔍 **Search** - Find files quickly across all materials  
+📥 **Download** - Get files individually or in batches
+📋 **Queue** - Add multiple files for batch download
+🔔 **Notifications** - Get alerts for new content
+📊 **Track** - View your download history and stats
+
+💡 **Quick Start:**
+1️⃣ Use /browse to explore course materials
+2️⃣ Click on files to download or ➕ to queue
+3️⃣ Use /queue to download all queued files
+4️⃣ Enable /notifications for updates
+
+Need help? Use /support to report issues!
+"""
+        
+        # Add quick action buttons
+        keyboard = [
+            [
+                InlineKeyboardButton("📁 Browse Files", callback_data="start_browse"),
+                InlineKeyboardButton("📋 My Queue", callback_data="start_queue")
+            ],
+            [
+                InlineKeyboardButton("📚 Help", callback_data="start_help"),
+                InlineKeyboardButton("🔔 Notifications", callback_data="start_notif")
+            ]
+        ]
+        
+        if is_new_user:
+            welcome_text += "\n🌟 **First time here? Click 'Browse Files' to get started!**"
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
     
     async def help_command(update, context):
         """Handle the /help command"""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        
         user_id = update.effective_user.id
         is_admin = user_id in ADMIN_IDS
         
@@ -386,8 +423,23 @@ The bot checks every 2 days automatically.
 2. Click on folders to navigate
 3. Click on files to download them
 4. Use /notifications to get updates about new content
+
+💡 **Tip:** Use the quick action buttons below!
         """
-        await update.message.reply_text(help_text)
+        
+        # Add quick action keyboard
+        keyboard = [
+            [
+                InlineKeyboardButton("📁 Browse", callback_data="start_browse"),
+                InlineKeyboardButton("📋 Queue", callback_data="start_queue")
+            ],
+            [
+                InlineKeyboardButton("📊 Stats", callback_data="start_stats"),
+                InlineKeyboardButton("🔔 Notifications", callback_data="start_notif")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(help_text, reply_markup=reply_markup)
     
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
     from telegram.ext import CallbackQueryHandler, ContextTypes
@@ -568,6 +620,26 @@ The bot checks every 2 days automatically.
                     )
                 else:
                     await query.edit_message_text("❌ Notification service is not available.")
+        
+        elif action == "start_browse":
+            # Quick action: Browse files
+            await browse_command(update, context)
+        
+        elif action == "start_queue":
+            # Quick action: View queue
+            await queue_command(update, context)
+        
+        elif action == "start_help":
+            # Quick action: Show help
+            await help_command(update, context)
+        
+        elif action == "start_notif":
+            # Quick action: Notifications menu
+            await notifications_command(update, context)
+        
+        elif action == "start_stats":
+            # Quick action: View stats
+            await stats_command(update, context)
         
         elif action == "page":
             # Pagination handler
@@ -1348,8 +1420,10 @@ The bot checks every 2 days automatically.
             keyboard = []
             for idx, item in enumerate(queue_items, 1):
                 file_name = item.get('file_name', 'Unknown')
+                # Escape special markdown characters in file name
+                file_name_escaped = escape_markdown(file_name, version=2)
                 file_size = item.get('file_size', 0)
-                text += f"{idx}. {file_name} ({format_file_size(file_size)})\n"
+                text += f"{idx}\\. {file_name_escaped} ({escape_markdown(format_file_size(file_size), version=2)})\n"
             
             # Add action buttons
             keyboard.append([
@@ -1358,7 +1432,7 @@ The bot checks every 2 days automatically.
             ])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='MarkdownV2')
             
         except Exception as e:
             logger.error(f"Error in queue_command: {e}")
