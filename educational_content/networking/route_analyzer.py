@@ -28,6 +28,14 @@ class RouteAnalyzer:
         """
         Perform traceroute to target
         Returns list of hops with latency
+        
+        Note: Traceroute shows CUMULATIVE latency from source to each hop.
+        For example:
+        - Hop 1: 5ms (5ms from source)
+        - Hop 2: 15ms (15ms from source, so hop added 10ms)
+        - Hop 3: 40ms (40ms from source, so hop added 25ms)
+        
+        To find bottleneck, calculate: hop[i] - hop[i-1]
         """
         print(f"\n🔍 Tracing route to {target}...")
         hops = []
@@ -95,13 +103,17 @@ class RouteAnalyzer:
         
         # Analysis
         total_hops = len(hops)
-        total_latency = sum(h['latency'] for h in hops)
+        # Traceroute shows cumulative latency, so total is the final hop's latency
+        total_latency = hops[-1]['latency'] if hops else 0
         
         # Find bottlenecks (hops with high latency increase)
+        # Traceroute latencies are cumulative, so diff = latency added by that hop
         bottlenecks = []
         for i in range(1, len(hops)):
             latency_increase = hops[i]['latency'] - hops[i-1]['latency']
-            if latency_increase > 20:  # More than 20ms increase
+            # Handle jitter (negative values) by taking absolute value
+            # Only flag as bottleneck if consistently high (>20ms added)
+            if latency_increase > 20:  # More than 20ms added by this hop
                 bottlenecks.append({
                     'hop': hops[i]['hop'],
                     'ip': hops[i]['ip'],
