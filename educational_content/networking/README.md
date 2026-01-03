@@ -21,6 +21,22 @@ Practical Python tool for monitoring network latency:
 - Automatic best server selection
 - Cross-platform (Windows, Linux, Mac)
 
+### [route_analyzer.py](./route_analyzer.py)
+Network route analysis tool:
+- Traceroute to game servers
+- Identify high-latency hops (bottlenecks)
+- Compare multiple routes
+- Get optimization recommendations
+- Cross-platform traceroute wrapper
+
+### [FAQ.md](./FAQ.md)
+Comprehensive troubleshooting guide:
+- Common ping reduction questions
+- Platform-specific issues (Windows, Linux, macOS)
+- Network optimization tips
+- VPN and routing advice
+- Testing methodology
+
 ## 🚀 Quick Start
 
 ### Using the Ping Monitor
