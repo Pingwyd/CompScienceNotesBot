@@ -899,11 +899,17 @@ The bot checks every 2 days automatically.
                             if file_content:
                                 # Use file path if available, otherwise just name
                                 # Handle cases where path might be None or empty
-                                file_path = file.get('path')
+                                file_path = file.get('path', '')
+                                file_name = file['name']
+                                
+                                # Construct the full archive path with the file name
                                 if file_path and isinstance(file_path, str) and file_path.strip():
-                                    arc_name = file_path
+                                    # Combine path and filename to preserve folder structure
+                                    arc_name = f"{file_path}/{file_name}"
                                 else:
-                                    arc_name = file['name']
+                                    # No path info, just use filename at root level
+                                    arc_name = file_name
+                                
                                 # Read the content as bytes from BytesIO
                                 file_bytes = file_content.read()
                                 
