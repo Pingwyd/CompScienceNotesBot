@@ -475,12 +475,14 @@ The bot checks every 2 days automatically.
                 sys.path.insert(0, str(bot_dir))
             
             from services.drive_service import DriveService
+            import asyncio
             
             # Create drive service
             drive = DriveService()
             
-            # Get files from the root folder
-            files = drive.list_files()
+            # Get files from the root folder (run in executor)
+            loop = asyncio.get_event_loop()
+            files = await loop.run_in_executor(None, drive.list_files)
             
             if not files:
                 await message.edit_text("No files found in the drive.")
@@ -670,16 +672,18 @@ The bot checks every 2 days automatically.
                 from services.drive_service import DriveService
                 
                 drive = DriveService()
+                import asyncio
+                loop = asyncio.get_event_loop()
                 
-                # Get folder info to show name
-                folder_info = drive.get_file_info(folder_id)
+                # Get folder info to show name (run in executor)
+                folder_info = await loop.run_in_executor(None, drive.get_file_info, folder_id)
                 folder_name = folder_info['name'] if folder_info else "Folder"
                 
                 # Add to navigation history
                 context.user_data['nav_history'].append({'id': folder_id, 'name': folder_name})
                 
-                # List files in the folder
-                files = drive.list_files(folder_id)
+                # List files in the folder (run in executor - blocking I/O)
+                files = await loop.run_in_executor(None, drive.list_files, folder_id)
                 
                 # Separate folders and files
                 folders = [f for f in files if drive.is_folder(f)]
@@ -791,11 +795,13 @@ The bot checks every 2 days automatically.
                     from services.drive_service import DriveService
                     
                     drive = DriveService()
+                    import asyncio
+                    loop = asyncio.get_event_loop()
                     context.user_data['current_page'] = 0
                     context.user_data['nav_history'].append(parent)
                     
-                    # List files and render folder view
-                    files = drive.list_files(parent_id)
+                    # List files and render folder view (run in executor)
+                    files = await loop.run_in_executor(None, drive.list_files, parent_id)
                     folders = [f for f in files if drive.is_folder(f)]
                     regular_files = [f for f in files if not drive.is_folder(f)]
                     
@@ -848,6 +854,7 @@ The bot checks every 2 days automatically.
             try:
                 import sys
                 from pathlib import Path
+                import asyncio
                 bot_dir = Path(__file__).parent
                 if str(bot_dir) not in sys.path:
                     sys.path.insert(0, str(bot_dir))
@@ -857,12 +864,15 @@ The bot checks every 2 days automatically.
                 import os
                 
                 drive = DriveService()
-                folder_info = drive.get_file_info(folder_id)
+                
+                # Run blocking operations in executor to avoid blocking other users
+                loop = asyncio.get_event_loop()
+                folder_info = await loop.run_in_executor(None, drive.get_file_info, folder_id)
                 folder_name = folder_info['name'] if folder_info else "Folder"
                 
-                # Get all files recursively
+                # Get all files recursively (blocking operation - run in executor)
                 status_msg = await query.message.reply_text(f"📁 Scanning folder '{folder_name}'...")
-                all_files = drive._get_all_files_recursive(folder_id, max_depth=5)
+                all_files = await loop.run_in_executor(None, drive._get_all_files_recursive, folder_id, "", 0, 5)
                 
                 # Filter out folders, keep only files
                 file_list = [f for f in all_files if not drive.is_folder(f)]
@@ -895,7 +905,8 @@ The bot checks every 2 days automatically.
                         try:
                             await status_msg.edit_text(f"📥 {idx}/{len(file_list)}: {file['name'][:30]}...")
                             
-                            file_content = drive.download_file(file['id'])
+                            # Download file in executor (blocking I/O)
+                            file_content = await loop.run_in_executor(None, drive.download_file, file['id'])
                             if file_content:
                                 # Use file path if available, otherwise just name
                                 # Handle cases where path might be None or empty
@@ -986,9 +997,11 @@ The bot checks every 2 days automatically.
                 if str(bot_dir) not in sys.path:
                     sys.path.insert(0, str(bot_dir))
                 from services.drive_service import DriveService
+                import asyncio
                 
                 drive = DriveService()
-                file_info = drive.get_file_info(file_id)
+                loop = asyncio.get_event_loop()
+                file_info = await loop.run_in_executor(None, drive.get_file_info, file_id)
                 
                 if file_info and db:
                     is_folder = drive.is_folder(file_info)
@@ -1031,9 +1044,11 @@ The bot checks every 2 days automatically.
                 if str(bot_dir) not in sys.path:
                     sys.path.insert(0, str(bot_dir))
                 from services.drive_service import DriveService
+                import asyncio
                 
                 drive = DriveService()
-                file_info = drive.get_file_info(file_id)
+                loop = asyncio.get_event_loop()
+                file_info = await loop.run_in_executor(None, drive.get_file_info, file_id)
                 
                 if file_info and db:
                     file_size = int(file_info.get('size', 0))
@@ -1144,9 +1159,11 @@ The bot checks every 2 days automatically.
                 if str(bot_dir) not in sys.path:
                     sys.path.insert(0, str(bot_dir))
                 from services.drive_service import DriveService
+                import asyncio
                 
                 drive = DriveService()
-                folder_info = drive.get_file_info(folder_id)
+                loop = asyncio.get_event_loop()
+                folder_info = await loop.run_in_executor(None, drive.get_file_info, folder_id)
                 
                 if folder_info and db:
                     folder_path = folder_info.get('path', '')
@@ -1186,13 +1203,15 @@ The bot checks every 2 days automatically.
                 # Import DriveService
                 import sys
                 from pathlib import Path
+                import asyncio
                 bot_dir = Path(__file__).parent
                 if str(bot_dir) not in sys.path:
                     sys.path.insert(0, str(bot_dir))
                 from services.drive_service import DriveService
                 
                 drive = DriveService()
-                file_info = drive.get_file_info(file_id)
+                loop = asyncio.get_event_loop()
+                file_info = await loop.run_in_executor(None, drive.get_file_info, file_id)
                 
                 if not file_info:
                     await query.message.reply_text("❌ File not found!")
@@ -1212,7 +1231,8 @@ The bot checks every 2 days automatically.
                     # Download and send file
                     status_msg = await query.message.reply_text("⬇️ Downloading file from Drive...")
                     
-                    file_content = drive.download_file(file_id)
+                    # Run download in executor (blocking I/O)
+                    file_content = await loop.run_in_executor(None, drive.download_file, file_id)
                     
                     if file_content:
                         await status_msg.edit_text("📤 Uploading to Telegram...")
@@ -1568,14 +1588,16 @@ The bot checks every 2 days automatically.
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
             
             drive = DriveService()
+            import asyncio
+            loop = asyncio.get_event_loop()
             
             # Get current folder ID from navigation history
             current_folder_id = None
             if 'nav_history' in context.user_data and context.user_data['nav_history']:
                 current_folder_id = context.user_data['nav_history'][-1]['id']
             
-            # List files in current folder (or root if not in a folder)
-            files = drive.list_files(current_folder_id)
+            # List files in current folder (or root if not in a folder) - run in executor
+            files = await loop.run_in_executor(None, drive.list_files, current_folder_id)
             
             # Search for matching files (case-insensitive)
             matching_files = [
