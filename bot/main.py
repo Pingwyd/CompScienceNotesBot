@@ -388,44 +388,51 @@ Need help? Use /support to report issues!
         is_admin = user_id in ADMIN_IDS
         
         help_text = """
-📚 **Available Commands:**
+📚 **Bot Commands & Features**
 
-/start - Start the bot
-/help - Show this help message
-/browse - Browse course materials
-/search <query> - Search for files
+**📂 File Browsing:**
+/start - Start the bot & main menu
+/browse - Browse all course materials
+/search <query> - Search all files in drive
 /searchhere <query> - Search in current folder
-/recent - View recent downloads
-/queue - Manage download queue
-/notifications - Manage notification settings
-/notification_on - Enable notifications
-/notification_off - Disable notifications
-/stats - View your download statistics
-/support <message> - Report issues or get help
+
+**📥 Downloads:**
+/recent - View your recent downloads
+/queue - View & manage download queue
+
+**🔔 Notifications:**
+/notifications - Check notification status
+/notification_on - Turn notifications ON
+/notification_off - Turn notifications OFF
+
+**📊 Statistics:**
+/stats - View your download stats
+
+**🆘 Support:**
+/support <message> - Report issues/get help
 /mytickets - View your support tickets
+/help - Show this help message
 """
         
         if is_admin:
             help_text += """
-**Admin Commands:**
-/admin_stats - View bot statistics
+**🔑 Admin Commands:**
+/admin_stats - Bot usage statistics
 /check_now - Manually check for new files
-/dbinfo - View database connection info
+/dbinfo - Database connection info
 /tickets - View all open support tickets
 """
         
         help_text += """
-**Notifications:**
-Get alerts when new files are added to the drive!
-The bot checks every 2 days automatically.
+**💡 Quick Tips:**
+• Files show ✓ if already in queue
+• Use 🏠 Home button to return to start
+• Download entire folders as ZIP
+• Enable notifications for new content alerts
 
-**How to use:**
-1. Use /browse to explore folders
-2. Click on folders to navigate
-3. Click on files to download them
-4. Use /notifications to get updates about new content
-
-💡 **Tip:** Use the quick action buttons below!
+**How Notifications Work:**
+Bot checks for new files every 2 days automatically.
+You'll get a message when new content is added!
         """
         
         # Add quick action keyboard
@@ -1359,9 +1366,11 @@ The bot checks every 2 days automatically.
         notification_service.add_subscriber(user_id)
         
         await update.message.reply_text(
-            "✅ **Notifications Enabled!**\n\n"
-            "You will now receive alerts when new files are added to the drive.\n\n"
-            "Use /notification_off to disable or /notifications to manage settings.",
+            "✅ **Notifications Turned ON**\n\n"
+            "🔔 You will now receive alerts when new files are added to the drive.\n"
+            "🕒 The bot checks every 2 days automatically.\n\n"
+            "Use /notification_off to disable\n"
+            "Use /notifications to check status",
             parse_mode='Markdown'
         )
     
@@ -1379,9 +1388,10 @@ The bot checks every 2 days automatically.
         notification_service.remove_subscriber(user_id)
         
         await update.message.reply_text(
-            "🔕 **Notifications Disabled**\n\n"
-            "You won't receive alerts about new files.\n\n"
-            "Use /notification_on to enable or /notifications to manage settings.",
+            "🔕 **Notifications Turned OFF**\n\n"
+            "❌ You won't receive alerts about new files anymore.\n\n"
+            "Use /notification_on to re-enable\n"
+            "Use /notifications to check status",
             parse_mode='Markdown'
         )
     
