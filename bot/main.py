@@ -398,6 +398,8 @@ Need help? Use /support to report issues!
 /recent - View recent downloads
 /queue - Manage download queue
 /notifications - Manage notification settings
+/notification_on - Enable notifications
+/notification_off - Disable notifications
 /stats - View your download statistics
 /support <message> - Report issues or get help
 /mytickets - View your support tickets
@@ -1278,7 +1280,7 @@ The bot checks every 2 days automatically.
     
     # Add notification commands
     async def notifications_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle the /notifications command - manage notification settings"""
+        """Handle the /notifications command - show notification settings with manual toggle buttons"""
         global notification_service
         
         if notification_service is None:
@@ -1301,6 +1303,57 @@ The bot checks every 2 days automatically.
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(status_text, reply_markup=reply_markup, parse_mode='Markdown')
+    
+    async def notification_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /notification_on command - enable notifications"""
+        global notification_service
+        
+        if notification_service is None:
+            await update.message.reply_text("❌ Notification service is not available.")
+            return
+        
+        user_id = update.effective_user.id
+        user = update.effective_user
+        
+        # Ensure user exists in database
+        if db:
+            db.add_user(
+                user_id=user.id,
+                username=user.username,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                is_admin=user.id in ADMIN_IDS
+            )
+        
+        # Add subscriber
+        notification_service.add_subscriber(user_id)
+        
+        await update.message.reply_text(
+            "✅ **Notifications Enabled!**\n\n"
+            "You will now receive alerts when new files are added to the drive.\n\n"
+            "Use /notification_off to disable or /notifications to manage settings.",
+            parse_mode='Markdown'
+        )
+    
+    async def notification_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /notification_off command - disable notifications"""
+        global notification_service
+        
+        if notification_service is None:
+            await update.message.reply_text("❌ Notification service is not available.")
+            return
+        
+        user_id = update.effective_user.id
+        
+        # Remove subscriber
+        notification_service.remove_subscriber(user_id)
+        
+        await update.message.reply_text(
+            "🔕 **Notifications Disabled**\n\n"
+            "You won't receive alerts about new files.\n\n"
+            "Use /notification_on to enable or /notifications to manage settings.",
+            parse_mode='Markdown'
+        )
     
     async def check_now_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle the /check_now command - manually trigger a check (Admin only)"""
@@ -1810,6 +1863,8 @@ Use /tickets to view all open tickets.
     application.add_handler(CommandHandler("queue", queue_command))
     application.add_handler(CommandHandler("searchhere", searchhere_command))
     application.add_handler(CommandHandler("notifications", notifications_command))
+    application.add_handler(CommandHandler("notification_on", notification_on_command))
+    application.add_handler(CommandHandler("notification_off", notification_off_command))
     application.add_handler(CommandHandler("check_now", check_now_command))
     application.add_handler(CommandHandler("support", support_command))
     application.add_handler(CommandHandler("mytickets", mytickets_command))
