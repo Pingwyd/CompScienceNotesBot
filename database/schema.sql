@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
     first_name TEXT,
     last_name TEXT,
     joined_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_active TIMESTAMP,
     is_admin BOOLEAN DEFAULT FALSE,
     total_downloads INTEGER DEFAULT 0
 );

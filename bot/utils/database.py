@@ -203,26 +203,33 @@ class Database:
 
     def _ensure_last_active_column(self):
         """Ensure `last_active` column exists in users table (migration)"""
-        cursor = self.connection.cursor()
-        
-        if self.db_type == 'postgresql':
-            # PostgreSQL way to check column exists
-            cursor.execute("""
-                SELECT column_name FROM information_schema.columns 
-                WHERE table_name='users' AND column_name='last_active'
-            """)
-            if not cursor.fetchone():
-                logger.info("Adding 'last_active' column to users table (PostgreSQL)")
-                cursor.execute("ALTER TABLE users ADD COLUMN last_active TIMESTAMP")
-                self.connection.commit()
-        else:
-            # SQLite way
-            cursor.execute("PRAGMA table_info(users)")
-            cols = [r['name'] for r in cursor.fetchall()]
-            if 'last_active' not in cols:
-                logger.info("Adding 'last_active' column to users table (SQLite)")
-                cursor.execute("ALTER TABLE users ADD COLUMN last_active TIMESTAMP")
-                self.connection.commit()
+        try:
+            cursor = self.connection.cursor()
+            
+            if self.db_type == 'postgresql':
+                # PostgreSQL way to check column exists
+                cursor.execute("""
+                    SELECT column_name FROM information_schema.columns 
+                    WHERE table_name='users' AND column_name='last_active'
+                """)
+                if not cursor.fetchone():
+                    logger.info("Adding 'last_active' column to users table (PostgreSQL)")
+                    cursor.execute("ALTER TABLE users ADD COLUMN last_active TIMESTAMP")
+                    if not self.connection.autocommit:
+                        self.connection.commit()
+                    logger.info("✓ Successfully added last_active column")
+            else:
+                # SQLite way
+                cursor.execute("PRAGMA table_info(users)")
+                cols = [row[1] if isinstance(row, tuple) else row['name'] for row in cursor.fetchall()]
+                if 'last_active' not in cols:
+                    logger.info("Adding 'last_active' column to users table (SQLite)")
+                    cursor.execute("ALTER TABLE users ADD COLUMN last_active TIMESTAMP")
+                    self.connection.commit()
+                    logger.info("✓ Successfully added last_active column")
+        except Exception as e:
+            logger.error(f"Failed to add last_active column: {e}")
+            # Don't raise - allow bot to continue even if migration fails
 
     def update_last_active(self, user_id: int) -> bool:
         """Update the last_active timestamp for a user"""
@@ -271,6 +278,17 @@ class Database:
                 """, (days,))
             
             row = cursor.fetchone()
+            return row['count'] if row else 0
+        except Exception as e:
+            logger.error(f"Failed to get active users count: {e}")
+            # Fallback: return total user count if last_active column doesn't exist
+            try:
+                cursor = self.connection.cursor()
+                cursor.execute("SELECT COUNT(*) as count FROM users")
+                row = cursor.fetchone()
+                return row['count'] if row else 0
+            except:
+                return 0
             return row['count'] if row else 0
         except Exception as e:
             logger.error(f"Failed to get active users count: {e}")
