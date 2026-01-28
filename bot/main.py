@@ -504,6 +504,9 @@ The bot checks every 2 days automatically.
             # Breadcrumb navigation (root level)
             file_list_text = "📍 **Home** > Course Materials\n\n"
             
+            # Add Home/Back button at root level
+            keyboard.append([InlineKeyboardButton("🏠 Back to Start", callback_data="start_browse")])
+            
             # Add folders first (no pagination for folders, usually not many)
             if folders:
                 file_list_text += "📁 **Folders:**\n"
@@ -534,13 +537,21 @@ The bot checks every 2 days automatically.
                     else:
                         icon = "📎"
                     
+                    # Check if already in queue
+                    in_queue = False
+                    if db:
+                        queue_items = db.get_queue(update.effective_user.id)
+                        in_queue = any(item['file_id'] == file['id'] for item in queue_items)
+                    
+                    queue_button = "✓" if in_queue else "+"
+                    
                     size = f" ({drive.format_file_size(file.get('size'))})" if file.get('size') else ""
                     keyboard.append([
                         InlineKeyboardButton(
-                            f"{icon} {file['name'][:35]}{'...' if len(file['name']) > 35 else ''}",
+                            f"{icon} {file['name'][:50]}{'...' if len(file['name']) > 50 else ''}",
                             callback_data=f"download|{file['id']}"
                         ),
-                        InlineKeyboardButton("➕", callback_data=f"queue_add|{file['id']}")
+                        InlineKeyboardButton(queue_button, callback_data=f"queue_add|{file['id']}")
                     ])
                 
                 # Add pagination buttons if needed
@@ -705,13 +716,16 @@ The bot checks every 2 days automatically.
                 
                 file_list_text = f"{breadcrumb}\n\n"
                 
-                # Add "Back" and "Download Folder as ZIP" buttons
+                # Add navigation buttons
                 nav_buttons = []
                 if len(context.user_data['nav_history']) > 0:
                     nav_buttons.append(InlineKeyboardButton("⬅️ Back", callback_data="back|back"))
-                nav_buttons.append(InlineKeyboardButton("📦 Download as ZIP", callback_data=f"zipfolder|{folder_id}"))
+                nav_buttons.append(InlineKeyboardButton("🏠 Home", callback_data="back|home"))
                 if nav_buttons:
                     keyboard.append(nav_buttons)
+                
+                # Add Download as ZIP button on separate row
+                keyboard.append([InlineKeyboardButton("📦 Download Folder as ZIP", callback_data=f"zipfolder|{folder_id}")])
                 
                 if not files:
                     file_list_text += "_(Empty folder)_"
@@ -741,15 +755,23 @@ The bot checks every 2 days automatically.
                             elif name.endswith('.mp4'): icon = "🎥"
                             else: icon = "📎"
                             
+                            # Check if already in queue
+                            in_queue = False
+                            if db:
+                                queue_items = db.get_queue(query.from_user.id)
+                                in_queue = any(item['file_id'] == file['id'] for item in queue_items)
+                            
+                            queue_button = "✓" if in_queue else "+"
+                            
                             size = f" ({drive.format_file_size(file.get('size'))})" if file.get('size') else ""
                             
                             # Add button for file download with action buttons
                             keyboard.append([
                                 InlineKeyboardButton(
-                                    f"{icon} {file['name'][:35]}{'...' if len(file['name']) > 35 else ''}",
+                                    f"{icon} {file['name'][:50]}{'...' if len(file['name']) > 50 else ''}",
                                     callback_data=f"download|{file['id']}"
                                 ),
-                                InlineKeyboardButton("➕", callback_data=f"queue_add|{file['id']}")
+                                InlineKeyboardButton(queue_button, callback_data=f"queue_add|{file['id']}")
                             ])
                         
                         # Add pagination buttons if needed
@@ -773,6 +795,14 @@ The bot checks every 2 days automatically.
                 await query.edit_message_text(error_msg, parse_mode='Markdown')
         
         elif action == "back":
+            # Handle different back actions
+            if value == "home":
+                # Go back to start menu
+                context.user_data['nav_history'] = []  # Clear navigation history
+                context.user_data['current_page'] = 0
+                await start_command(update, context)
+                return
+            
             # Go back in navigation history
             if 'nav_history' in context.user_data and len(context.user_data['nav_history']) > 0:
                 context.user_data['nav_history'].pop()  # Remove current folder
