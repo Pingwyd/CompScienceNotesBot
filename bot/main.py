@@ -2018,9 +2018,9 @@ You'll get a message when new content is added!
             return
         
         try:
-            # Get database path
+            # Get database path (same as in setup_database)
             from pathlib import Path
-            db_path = Path(__file__).parent / 'database' / 'bot_data.db'
+            db_path = Path(__file__).parent.parent / 'bot_data.db'
             
             if not db_path.exists():
                 await update.message.reply_text("❌ Database file not found.")
@@ -2088,8 +2088,8 @@ You'll get a message when new content is added!
             from pathlib import Path
             import shutil
             
-            # Create backup of current database
-            db_path = Path(__file__).parent / 'database' / 'bot_data.db'
+            # Create backup of current database (same as in setup_database)
+            db_path = Path(__file__).parent.parent / 'bot_data.db'
             backup_path = db_path.parent / f'bot_data_backup_{update.message.date.strftime("%Y%m%d_%H%M%S")}.db'
             
             if db_path.exists():
