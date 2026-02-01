@@ -421,6 +421,8 @@ Need help? Use /support to report issues!
 /check_now - Manually check for new files
 /dbinfo - Database connection info
 /tickets - View all open support tickets
+/getdb - Download database backup
+/uploaddb - Restore database from backup
 """
         
         help_text += """
@@ -2005,6 +2007,124 @@ You'll get a message when new content is added!
             size_bytes /= 1024.0
         return f"{size_bytes:.1f} TB"
     
+    async def getdb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Admin command to download the SQLite database"""
+        user_id = update.effective_user.id
+        
+        # Check if user is admin
+        from utils.constants import ADMIN_USER_IDS
+        if user_id not in ADMIN_USER_IDS:
+            await update.message.reply_text("❌ Access denied. This command is only for admins.")
+            return
+        
+        try:
+            # Get database path
+            from pathlib import Path
+            db_path = Path(__file__).parent / 'database' / 'bot_data.db'
+            
+            if not db_path.exists():
+                await update.message.reply_text("❌ Database file not found.")
+                return
+            
+            # Send database file
+            await update.message.reply_text("📦 Preparing database backup...")
+            
+            with open(db_path, 'rb') as db_file:
+                await update.message.reply_document(
+                    document=db_file,
+                    filename=f"bot_backup_{update.message.date.strftime('%Y%m%d_%H%M%S')}.db",
+                    caption="📊 SQLite Database Backup\n\nUse /uploaddb to restore this backup."
+                )
+            
+            await update.message.reply_text("✅ Database backup sent successfully!")
+            logger.info(f"Database downloaded by admin user {user_id}")
+            
+        except Exception as e:
+            logger.error(f"Error in getdb_command: {e}")
+            await update.message.reply_text(f"❌ Error creating backup: {str(e)}")
+    
+    async def uploaddb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Admin command to upload and restore the SQLite database"""
+        user_id = update.effective_user.id
+        
+        # Check if user is admin
+        from utils.constants import ADMIN_USER_IDS
+        if user_id not in ADMIN_USER_IDS:
+            await update.message.reply_text("❌ Access denied. This command is only for admins.")
+            return
+        
+        await update.message.reply_text(
+            "📤 **Database Restore**\n\n"
+            "Please send me the database file (.db) as a document.\n\n"
+            "⚠️ Warning: This will replace the current database!",
+            parse_mode='Markdown'
+        )
+    
+    async def handle_database_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle database file upload from admin"""
+        user_id = update.effective_user.id
+        
+        # Check if user is admin
+        from utils.constants import ADMIN_USER_IDS
+        if user_id not in ADMIN_USER_IDS:
+            return
+        
+        # Check if message has a document
+        if not update.message.document:
+            return
+        
+        document = update.message.document
+        
+        # Check if it's a .db file
+        if not document.file_name.endswith('.db'):
+            return
+        
+        try:
+            await update.message.reply_text("📥 Downloading database file...")
+            
+            # Download the file
+            file = await context.bot.get_file(document.file_id)
+            
+            from pathlib import Path
+            import shutil
+            
+            # Create backup of current database
+            db_path = Path(__file__).parent / 'database' / 'bot_data.db'
+            backup_path = db_path.parent / f'bot_data_backup_{update.message.date.strftime("%Y%m%d_%H%M%S")}.db'
+            
+            if db_path.exists():
+                shutil.copy2(db_path, backup_path)
+                await update.message.reply_text(f"💾 Current database backed up to: {backup_path.name}")
+            
+            # Download new database
+            temp_path = db_path.parent / 'temp_upload.db'
+            await file.download_to_drive(temp_path)
+            
+            # Close existing database connections
+            global db
+            if db:
+                db.close()
+            
+            # Replace the database
+            shutil.move(temp_path, db_path)
+            
+            # Reinitialize database
+            from utils.database import DatabaseService
+            db = DatabaseService()
+            
+            await update.message.reply_text(
+                "✅ Database restored successfully!\n\n"
+                f"📊 Backup saved as: {backup_path.name}\n"
+                "🔄 Database reloaded and ready to use.",
+                parse_mode='Markdown'
+            )
+            
+            logger.info(f"Database restored by admin user {user_id}")
+            
+        except Exception as e:
+            logger.error(f"Error restoring database: {e}")
+            await update.message.reply_text(f"❌ Error restoring database: {str(e)}")
+    
     async def searchhere_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle the /searchhere command - search files in current folder"""
         user_id = update.effective_user.id
@@ -2260,6 +2380,14 @@ Use /tickets to view all open tickets.
     application.add_handler(CommandHandler("support", support_command))
     application.add_handler(CommandHandler("mytickets", mytickets_command))
     application.add_handler(CommandHandler("tickets", tickets_command))
+    
+    # Admin commands for database backup/restore
+    application.add_handler(CommandHandler("getdb", getdb_command))
+    application.add_handler(CommandHandler("uploaddb", uploaddb_command))
+    
+    # Add handler for document uploads (for database restore)
+    from telegram.ext import MessageHandler, filters
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_database_upload))
     
     # Set up scheduler for periodic checks
     check_interval_hours = int(os.getenv('CHECK_INTERVAL_HOURS', '48'))  # Default: 2 days
