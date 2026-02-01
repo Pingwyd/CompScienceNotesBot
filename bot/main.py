@@ -2062,6 +2062,7 @@ You'll get a message when new content is added!
     
     async def handle_database_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle database file upload from admin"""
+        global db  # Declare global at the start
         user_id = update.effective_user.id
         
         # Check if user is admin
