@@ -4,10 +4,8 @@ Constants and configuration values
 
 import os
 
-# Admin user IDs (add your Telegram user ID here)
-ADMIN_USER_IDS = [
-    int(os.getenv('ADMIN_USER_ID', '0'))  # Set ADMIN_USER_ID in environment variables
-]
+# Admin user IDs (reads from ADMIN_USER_IDS environment variable - comma-separated)
+ADMIN_USER_IDS = [int(id.strip()) for id in os.getenv('ADMIN_USER_IDS', '').split(',') if id.strip()]
 
 # File size limits (in bytes)
 MAX_TELEGRAM_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
