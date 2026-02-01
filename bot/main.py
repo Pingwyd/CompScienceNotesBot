@@ -2103,14 +2103,20 @@ You'll get a message when new content is added!
             # Close existing database connections
             global db
             if db:
-                db.close()
+                try:
+                    db.close()
+                except:
+                    pass
             
             # Replace the database
             shutil.move(temp_path, db_path)
             
             # Reinitialize database
-            from utils.database import DatabaseService
-            db = DatabaseService()
+            from utils.database import Database
+            db = Database(str(db_path))
+            if db.connect():
+                schema_path = Path(__file__).parent.parent / "database" / "schema.sql"
+                db.initialize_schema(str(schema_path))
             
             await update.message.reply_text(
                 "✅ Database restored successfully!\n\n"
