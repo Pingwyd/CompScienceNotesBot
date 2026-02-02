@@ -1416,16 +1416,37 @@ You'll get a message when new content is added!
             
             if file_id in context.user_data['folder_selected']:
                 context.user_data['folder_selected'].remove(file_id)
+                await query.answer("☐ Unselected")
             else:
                 context.user_data['folder_selected'].add(file_id)
+                await query.answer("☑️ Selected")
             
-            # Re-render the current folder view
-            if 'nav_history' in context.user_data and len(context.user_data['nav_history']) > 0:
-                current_folder_id = context.user_data['nav_history'][-1]
-                query.data = f"folder|{current_folder_id}"
-                await button_click(update, context)
-            else:
-                await browse_command(update, context)
+            # Update the keyboard immediately
+            if query.message.reply_markup:
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                new_keyboard = []
+                selected = context.user_data['folder_selected']
+                
+                for row in query.message.reply_markup.inline_keyboard:
+                    new_row = []
+                    for button in row:
+                        # Find file toggle buttons and update their checkbox
+                        if button.callback_data and button.callback_data.startswith("folder_toggle|"):
+                            btn_file_id = button.callback_data.split("|")[1]
+                            # Extract icon and filename from button text
+                            text = button.text
+                            # Replace checkbox at the start
+                            if text.startswith("☐") or text.startswith("☑️"):
+                                checkbox = "☑️" if btn_file_id in selected else "☐"
+                                new_text = checkbox + text[1:]  # Replace first character
+                                new_row.append(InlineKeyboardButton(new_text, callback_data=button.callback_data))
+                            else:
+                                new_row.append(button)
+                        else:
+                            new_row.append(button)
+                    new_keyboard.append(new_row)
+                
+                await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_keyboard))
         
         elif action == "folder_zip_selected":
             # Download selected folder files as ZIP
