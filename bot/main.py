@@ -1912,6 +1912,8 @@ You'll get a message when new content is added!
     
     async def queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle the /queue command - show download queue"""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        
         user_id = update.effective_user.id
         
         if not db:
@@ -1935,8 +1937,6 @@ You'll get a message when new content is added!
                 else:
                     await update.message.reply_text(message_text, reply_markup=reply_markup)
                 return
-            
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
             
             # Calculate total size
             total_size = sum(item.get('file_size', 0) for item in queue_items)
