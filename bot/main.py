@@ -517,6 +517,9 @@ You'll get a message when new content is added!
             # Add Home/Back button at root level
             keyboard.append([InlineKeyboardButton("🏠 Back to Start", callback_data="start_browse")])
             
+            # Check selection mode early
+            selection_mode = context.user_data.get('folder_selection_mode', False)
+            
             # Add folders first (no pagination for folders, usually not many)
             if folders:
                 file_list_text += "📁 **Folders:**\n"
@@ -598,17 +601,14 @@ You'll get a message when new content is added!
             else:
                 file_list_text += f"\n\n📊 Total: {len(folders)} folders, {len(regular_files)} files"
             
-            # Check if in selection mode
-            selection_mode = context.user_data.get('folder_selection_mode', False)
-            
-            # Add selection mode toggle and actions
+            # Add selection mode toggle and actions (selection_mode already defined above)
             action_row = []
             if selection_mode and 'folder_selected' in context.user_data and len(context.user_data['folder_selected']) > 0:
                 selected_count = len(context.user_data['folder_selected'])
-                action_row.append(InlineKeyboardButton(f"📦 ZIP Selected ({selected_count})", callback_data="folder_zip_selected"))
+                action_row.append(InlineKeyboardButton(f"📦 ZIP ({selected_count})", callback_data="folder_zip_selected"))
             
             if len(regular_files) > 0:  # Only show selection toggle if there are files
-                toggle_text = "✖️ Cancel Selection" if selection_mode else "☑️ Select Files"
+                toggle_text = "✖️ Cancel" if selection_mode else "☑️ Select"
                 toggle_data = "folder_selection_off" if selection_mode else "folder_selection_on"
                 action_row.append(InlineKeyboardButton(toggle_text, callback_data=toggle_data))
             
@@ -776,8 +776,12 @@ You'll get a message when new content is added!
                 if nav_buttons:
                     keyboard.append(nav_buttons)
                 
-                # Add Download as ZIP button on separate row
-                keyboard.append([InlineKeyboardButton("📦 Download Folder as ZIP", callback_data=f"zipfolder|{folder_id}")])
+                # Check if in selection mode (early check to control ZIP button)
+                selection_mode = context.user_data.get('folder_selection_mode', False)
+                
+                # Add Download as ZIP button only if NOT in selection mode
+                if not selection_mode:
+                    keyboard.append([InlineKeyboardButton("📦 Download Folder as ZIP", callback_data=f"zipfolder|{folder_id}")])
                 
                 if not files:
                     file_list_text += "_(Empty folder)_"
@@ -856,17 +860,14 @@ You'll get a message when new content is added!
                     
                     file_list_text += f"\n\n📊 Total: {len(folders)} folders, {len(regular_files)} files"
                 
-                # Check if in selection mode
-                selection_mode = context.user_data.get('folder_selection_mode', False)
-                
-                # Add selection mode toggle and actions
+                # Add selection mode toggle and actions (selection_mode already defined above)
                 action_row = []
                 if selection_mode and 'folder_selected' in context.user_data and len(context.user_data['folder_selected']) > 0:
                     selected_count = len(context.user_data['folder_selected'])
-                    action_row.append(InlineKeyboardButton(f"📦 ZIP Selected ({selected_count})", callback_data="folder_zip_selected"))
+                    action_row.append(InlineKeyboardButton(f"📦 ZIP ({selected_count})", callback_data="folder_zip_selected"))
                 
                 if len(regular_files) > 0:  # Only show selection toggle if there are files
-                    toggle_text = "✖️ Cancel Selection" if selection_mode else "☑️ Select Files"
+                    toggle_text = "✖️ Cancel" if selection_mode else "☑️ Select"
                     toggle_data = "folder_selection_off" if selection_mode else "folder_selection_on"
                     action_row.append(InlineKeyboardButton(toggle_text, callback_data=toggle_data))
                 
@@ -1431,21 +1432,23 @@ You'll get a message when new content is added!
                 for row in query.message.reply_markup.inline_keyboard:
                     new_row = []
                     for button in row:
-                        # Find file toggle buttons and update their checkbox
+                        # Update file toggle buttons
                         if button.callback_data and button.callback_data.startswith("folder_toggle|"):
                             btn_file_id = button.callback_data.split("|")[1]
-                            # Extract icon and filename from button text
                             text = button.text
-                            # Replace checkbox at the start
-                            if text.startswith("☐") or text.startswith("☑️"):
-                                checkbox = "☑️" if btn_file_id in selected else "☐"
-                                new_text = checkbox + text[1:]  # Replace first character
-                                new_row.append(InlineKeyboardButton(new_text, callback_data=button.callback_data))
+                            # Replace checkbox (first 2 characters to handle emoji)
+                            if btn_file_id in selected:
+                                new_text = "☑️" + text[2:] if len(text) > 2 else "☑️"
                             else:
-                                new_row.append(button)
+                                new_text = "☐" + text[2:] if len(text) > 2 else "☐"
+                            new_row.append(InlineKeyboardButton(new_text, callback_data=button.callback_data))
+                        # Update ZIP Selected button count
+                        elif button.callback_data == "folder_zip_selected" and len(selected) > 0:
+                            new_row.append(InlineKeyboardButton(f"📦 ZIP Selected ({len(selected)})", callback_data="folder_zip_selected"))
                         else:
                             new_row.append(button)
-                    new_keyboard.append(new_row)
+                    if new_row:  # Only add non-empty rows
+                        new_keyboard.append(new_row)
                 
                 await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_keyboard))
         
