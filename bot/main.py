@@ -411,6 +411,7 @@ Need help? Use /support to report issues!
 **🆘 Support:**
 /support <message> - Report issues/get help
 /mytickets - View your support tickets
+/changelog - View update history & new features
 /help - Show this help message
 """
         
@@ -575,7 +576,7 @@ You'll get a message when new content is added!
                         
                         keyboard.append([
                             InlineKeyboardButton(
-                                f"{icon} {file['name'][:50]}{'...' if len(file['name']) > 50 else ''}",
+                                f"{icon} {file['name'][:35]}{'...' if len(file['name']) > 35 else ''}",
                                 callback_data=f"download|{file['id']}"
                             ),
                             InlineKeyboardButton(queue_button, callback_data=f"queue_add|{file['id']}")
@@ -819,7 +820,7 @@ You'll get a message when new content is added!
                                 checkbox = "☑️" if is_selected else "☐"
                                 keyboard.append([
                                     InlineKeyboardButton(
-                                        f"{checkbox} {icon} {file['name'][:45]}{'...' if len(file['name']) > 45 else ''}",
+                                        f"{checkbox} {file['name'][:40]}{'...' if len(file['name']) > 40 else ''}",
                                         callback_data=f"folder_toggle|{file['id']}"
                                     )
                                 ])
@@ -836,7 +837,7 @@ You'll get a message when new content is added!
                                 # Add button for file download with action buttons
                                 keyboard.append([
                                     InlineKeyboardButton(
-                                        f"{icon} {file['name'][:50]}{'...' if len(file['name']) > 50 else ''}",
+                                        f"{icon} {file['name'][:35]}{'...' if len(file['name']) > 35 else ''}",
                                         callback_data=f"download|{file['id']}"
                                     ),
                                     InlineKeyboardButton(queue_button, callback_data=f"queue_add|{file['id']}")
@@ -1987,7 +1988,7 @@ You'll get a message when new content is added!
                 # Add button with checkbox
                 keyboard.append([
                     InlineKeyboardButton(
-                        f"{checkbox} {file_name[:30]}{'...' if len(file_name) > 30 else ''}",
+                        f"{checkbox} {file_name[:35]}{'...' if len(file_name) > 35 else ''}",
                         callback_data=f"queue_toggle|{file_id}"
                     )
                 ])
@@ -2152,6 +2153,43 @@ You'll get a message when new content is added!
         except Exception as e:
             logger.error(f"Error restoring database: {e}")
             await update.message.reply_text(f"❌ Error restoring database: {str(e)}")
+    
+    async def changelog_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /changelog command - show bot update history"""
+        try:
+            from pathlib import Path
+            changelog_path = Path(__file__).parent.parent / "CHANGELOG.md"
+            
+            if not changelog_path.exists():
+                await update.message.reply_text("📋 No changelog available.")
+                return
+            
+            with open(changelog_path, 'r', encoding='utf-8') as f:
+                changelog_text = f.read()
+            
+            # Split into chunks if too long (Telegram has 4096 char limit)
+            max_length = 4000
+            if len(changelog_text) > max_length:
+                # Send in chunks
+                chunks = []
+                current_chunk = ""
+                for line in changelog_text.split('\n'):
+                    if len(current_chunk) + len(line) + 1 > max_length:
+                        chunks.append(current_chunk)
+                        current_chunk = line + '\n'
+                    else:
+                        current_chunk += line + '\n'
+                if current_chunk:
+                    chunks.append(current_chunk)
+                
+                for i, chunk in enumerate(chunks):
+                    await update.message.reply_text(chunk, parse_mode='Markdown')
+            else:
+                await update.message.reply_text(changelog_text, parse_mode='Markdown')
+        
+        except Exception as e:
+            logger.error(f"Error in changelog_command: {e}")
+            await update.message.reply_text(f"❌ Error loading changelog: {str(e)}")
     
     async def searchhere_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle the /searchhere command - search files in current folder"""
@@ -2401,6 +2439,7 @@ Use /tickets to view all open tickets.
     application.add_handler(CommandHandler("recent", recent_command))
     application.add_handler(CommandHandler("queue", queue_command))
     application.add_handler(CommandHandler("searchhere", searchhere_command))
+    application.add_handler(CommandHandler("changelog", changelog_command))
     application.add_handler(CommandHandler("notifications", notifications_command))
     application.add_handler(CommandHandler("notification_on", notification_on_command))
     application.add_handler(CommandHandler("notification_off", notification_off_command))
