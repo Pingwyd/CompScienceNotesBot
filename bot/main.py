@@ -576,7 +576,7 @@ You'll get a message when new content is added!
                         
                         keyboard.append([
                             InlineKeyboardButton(
-                                f"{icon} {file['name'][:35]}{'...' if len(file['name']) > 35 else ''}",
+                                f"{icon} {file['name'][:45]}{'...' if len(file['name']) > 45 else ''}",
                                 callback_data=f"download|{file['id']}"
                             ),
                             InlineKeyboardButton(queue_button, callback_data=f"queue_add|{file['id']}")
@@ -820,7 +820,7 @@ You'll get a message when new content is added!
                                 checkbox = "☑️" if is_selected else "☐"
                                 keyboard.append([
                                     InlineKeyboardButton(
-                                        f"{checkbox} {file['name'][:40]}{'...' if len(file['name']) > 40 else ''}",
+                                        f"{checkbox} {file['name'][:48]}{'...' if len(file['name']) > 48 else ''}",
                                         callback_data=f"folder_toggle|{file['id']}"
                                     )
                                 ])
@@ -837,7 +837,7 @@ You'll get a message when new content is added!
                                 # Add button for file download with action buttons
                                 keyboard.append([
                                     InlineKeyboardButton(
-                                        f"{icon} {file['name'][:35]}{'...' if len(file['name']) > 35 else ''}",
+                                        f"{icon} {file['name'][:45]}{'...' if len(file['name']) > 45 else ''}",
                                         callback_data=f"download|{file['id']}"
                                     ),
                                     InlineKeyboardButton(queue_button, callback_data=f"queue_add|{file['id']}")
@@ -1988,7 +1988,7 @@ You'll get a message when new content is added!
                 # Add button with checkbox
                 keyboard.append([
                     InlineKeyboardButton(
-                        f"{checkbox} {file_name[:35]}{'...' if len(file_name) > 35 else ''}",
+                        f"{checkbox} {file_name[:45]}{'...' if len(file_name) > 45 else ''}",
                         callback_data=f"queue_toggle|{file_id}"
                     )
                 ])
