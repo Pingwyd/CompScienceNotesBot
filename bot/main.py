@@ -424,8 +424,8 @@ Need help? Use /support to report issues!
 
 **🔔 Notifications:**
 /notifications - Check notification status
-/notification_on - Turn notifications ON
-/notification_off - Turn notifications OFF
+/notificationson - Turn notifications ON
+/notificationsoff - Turn notifications OFF
 
 **📊 Statistics:**
 /stats - View your download stats
@@ -440,8 +440,8 @@ Need help? Use /support to report issues!
         if is_admin:
             help_text += """
 **🔑 Admin Commands:**
-/admin_stats - Bot usage statistics
-/check_now - Manually check for new files
+/adminstats - Bot usage statistics
+/checknow - Manually check for new files
 /dbinfo - Database connection info
 /tickets - View all open support tickets
 /getdb - Download database backup
@@ -1531,8 +1531,8 @@ You'll get a message when new content is added!
         else:
             await update.message.reply_text(status_text, reply_markup=reply_markup, parse_mode='Markdown')
     
-    async def notification_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle the /notification_on command - enable notifications"""
+    async def notificationson_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /notificationson command - enable notifications"""
         global notification_service
         
         if notification_service is None:
@@ -1559,13 +1559,13 @@ You'll get a message when new content is added!
             "✅ **Notifications Turned ON**\n\n"
             "🔔 You will now receive alerts when new files are added to the drive.\n"
             "🕒 The bot checks every 2 days automatically.\n\n"
-            "Use /notification_off to disable\n"
+            "Use /notificationsoff to disable\n"
             "Use /notifications to check status",
             parse_mode='Markdown'
         )
     
-    async def notification_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle the /notification_off command - disable notifications"""
+    async def notificationsoff_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /notificationsoff command - disable notifications"""
         global notification_service
         
         if notification_service is None:
@@ -1580,13 +1580,13 @@ You'll get a message when new content is added!
         await update.message.reply_text(
             "🔕 **Notifications Turned OFF**\n\n"
             "❌ You won't receive alerts about new files anymore.\n\n"
-            "Use /notification_on to re-enable\n"
+            "Use /notificationson to re-enable\n"
             "Use /notifications to check status",
             parse_mode='Markdown'
         )
     
-    async def check_now_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle the /check_now command - manually trigger a check (Admin only)"""
+    async def checknow_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /checknow command - manually trigger a check (Admin only)"""
         global notification_service
         
         user_id = update.effective_user.id
@@ -1666,8 +1666,8 @@ You'll get a message when new content is added!
         except Exception as e:
             await update.message.reply_text(f"❌ Error fetching stats: {str(e)}")
     
-    async def admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle the /admin_stats command - show bot statistics (Admin only)"""
+    async def adminstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /adminstats command - show bot statistics (Admin only)"""
         user_id = update.effective_user.id
         if user_id not in ADMIN_IDS:
             await update.message.reply_text("⛔ You are not authorized to use this command.")
@@ -2283,16 +2283,16 @@ Use /tickets to view all open tickets.
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
     application.add_handler(CommandHandler("stats", stats_command))
-    application.add_handler(CommandHandler("admin_stats", admin_stats_command))
+    application.add_handler(CommandHandler("adminstats", adminstats_command))
     application.add_handler(CommandHandler("dbinfo", dbinfo_command))
     application.add_handler(CommandHandler("recent", recent_command))
     application.add_handler(CommandHandler("queue", queue_command))
     application.add_handler(CommandHandler("searchhere", searchhere_command))
     application.add_handler(CommandHandler("changelog", changelog_command))
     application.add_handler(CommandHandler("notifications", notifications_command))
-    application.add_handler(CommandHandler("notification_on", notification_on_command))
-    application.add_handler(CommandHandler("notification_off", notification_off_command))
-    application.add_handler(CommandHandler("check_now", check_now_command))
+    application.add_handler(CommandHandler("notificationson", notificationson_command))
+    application.add_handler(CommandHandler("notificationsoff", notificationsoff_command))
+    application.add_handler(CommandHandler("checknow", checknow_command))
     application.add_handler(CommandHandler("support", support_command))
     application.add_handler(CommandHandler("mytickets", mytickets_command))
     application.add_handler(CommandHandler("tickets", tickets_command))
