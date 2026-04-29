@@ -6,12 +6,21 @@ import os
 import sys
 import logging
 import threading
+import asyncio
+from io import BytesIO
+from pathlib import Path
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from flask import Flask
+import zipfile
+
+# Setup sys.path once at module level to avoid repeated checks
+bot_dir = Path(__file__).parent
+if str(bot_dir) not in sys.path:
+    sys.path.insert(0, str(bot_dir))
 
 # Load environment variables
 load_dotenv()
@@ -30,12 +39,34 @@ logging.getLogger('werkzeug').setLevel(logging.ERROR)
 
 logger = logging.getLogger(__name__)
 
+# Import DriveService at module level
+from services.drive_service import DriveService
+
 # Admin IDs (load from env)
 ADMIN_IDS = [int(id.strip()) for id in os.getenv('ADMIN_USER_IDS', '').split(',') if id.strip()]
 
 # Notification service (global variable to be initialized)
 notification_service = None
 drive_service_instance = None  # Cache DriveService globally
+
+# File type icon mapping for performance
+FILE_TYPE_ICONS = {
+    '.pdf': '📄',
+    '.doc': '📝',
+    '.docx': '📝',
+    '.jpg': '🖼️',
+    '.jpeg': '🖼️',
+    '.png': '🖼️',
+    '.mp4': '🎥',
+}
+
+def get_file_icon(filename: str) -> str:
+    """Get icon for file based on extension (optimized lookup)"""
+    name_lower = filename.lower()
+    for ext, icon in FILE_TYPE_ICONS.items():
+        if name_lower.endswith(ext):
+            return icon
+    return '📎'  # Default icon
 
 # Flask app for health check endpoint
 flask_app = Flask(__name__)
@@ -74,16 +105,9 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Use cached DriveService or create new one
         if drive_service_instance is None:
-            import sys
-            from pathlib import Path
-            bot_dir = Path(__file__).parent
-            if str(bot_dir) not in sys.path:
-                sys.path.insert(0, str(bot_dir))
-            from services.drive_service import DriveService
             drive_service_instance = DriveService()
         
         # Run search in executor to avoid blocking
-        import asyncio
         loop = asyncio.get_event_loop()
         files = await loop.run_in_executor(None, drive_service_instance.search_files, query)
         
@@ -102,19 +126,10 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             display_name = f"{file_path}/{file['name']}" if file_path else file['name']
             
             if drive_service_instance.is_folder(file):
-                # Import InlineKeyboardButton here to avoid circular imports or scope issues if not global
-                from telegram import InlineKeyboardButton
                 keyboard.append([InlineKeyboardButton(f"📁 {display_name}", callback_data=f"folder|{file['id']}")])
             else:
-                from telegram import InlineKeyboardButton
-                # File icons
-                name = file['name'].lower()
-                if name.endswith('.pdf'): icon = "📄"
-                elif name.endswith(('.doc', '.docx')): icon = "📝"
-                elif name.endswith(('.jpg', '.jpeg', '.png')): icon = "🖼️"
-                elif name.endswith('.mp4'): icon = "🎥"
-                else: icon = "📎"
-                
+                # Use optimized icon detection
+                icon = get_file_icon(file['name'])
                 size = f" ({drive_service_instance.format_file_size(file.get('size'))})" if file.get('size') else ""
                 
                 # Add button for file download
@@ -477,20 +492,12 @@ You'll get a message when new content is added!
             message = await update.message.reply_text("📁 Fetching files from Google Drive...")
         
         try:
-            # Import the DriveService - using direct import from services folder
-            import sys
-            from pathlib import Path
+            # Use global DriveService instance
+            global drive_service_instance
+            if drive_service_instance is None:
+                drive_service_instance = DriveService()
             
-            # Add bot directory to path
-            bot_dir = Path(__file__).parent
-            if str(bot_dir) not in sys.path:
-                sys.path.insert(0, str(bot_dir))
-            
-            from services.drive_service import DriveService
-            import asyncio
-            
-            # Create drive service
-            drive = DriveService()
+            drive = drive_service_instance
             
             # Get files from the root folder (run in executor)
             loop = asyncio.get_event_loop()
@@ -503,6 +510,13 @@ You'll get a message when new content is added!
             # Separate folders and files
             folders = [f for f in files if drive.is_folder(f)]
             regular_files = [f for f in files if not drive.is_folder(f)]
+            
+            # Cache queue items once to avoid N+1 queries
+            user_id = update.effective_user.id
+            queued_file_ids = set()
+            if db:
+                queue_items = db.get_queue(user_id)
+                queued_file_ids = {item['file_id'] for item in queue_items}
             
             # Pagination settings
             ITEMS_PER_PAGE = 15
@@ -536,25 +550,13 @@ You'll get a message when new content is added!
                 end_idx = start_idx + ITEMS_PER_PAGE
                 page_files = regular_files[start_idx:end_idx]
                 
-                # Check if in selection mode
-                selection_mode = context.user_data.get('folder_selection_mode', False)
+                # Initialize selected set if needed
                 if 'folder_selected' not in context.user_data:
                     context.user_data['folder_selected'] = set()
                 
                 for file in page_files:
-                    # Determine icon based on file type
-                    name = file['name'].lower()
-                    if name.endswith('.pdf'):
-                        icon = "📄"
-                    elif name.endswith(('.doc', '.docx')):
-                        icon = "📝"
-                    elif name.endswith(('.jpg', '.jpeg', '.png')):
-                        icon = "🖼️"
-                    elif name.endswith('.mp4'):
-                        icon = "🎥"
-                    else:
-                        icon = "📎"
-                    
+                    # Use optimized icon detection
+                    icon = get_file_icon(file['name'])
                     size = f" ({drive.format_file_size(file.get('size'))})" if file.get('size') else ""
                     
                     if selection_mode:
@@ -568,13 +570,8 @@ You'll get a message when new content is added!
                             )
                         ])
                     else:
-                        # Normal mode: show download and queue buttons
-                        # Check if already in queue
-                        in_queue = False
-                        if db:
-                            queue_items = db.get_queue(update.effective_user.id)
-                            in_queue = any(item['file_id'] == file['id'] for item in queue_items)
-                        
+                        # Normal mode: show download and queue buttons (use cached set)
+                        in_queue = file['id'] in queued_file_ids
                         queue_button = "✓" if in_queue else "+"
                         
                         keyboard.append([
@@ -590,7 +587,8 @@ You'll get a message when new content is added!
                     nav_buttons = []
                     if page > 0:
                         nav_buttons.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"page|{page-1}"))
-                    file_list_text += f"\n_Page {page + 1}/{(len(regular_files) - 1) // ITEMS_PER_PAGE + 1}_"
+                    total_pages = (len(regular_files) - 1) // ITEMS_PER_PAGE + 1
+                    file_list_text += f"\n_Page {page + 1}/{total_pages}_"
                     if end_idx < len(regular_files):
                         nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"page|{page+1}"))
                     if nav_buttons:
@@ -601,7 +599,7 @@ You'll get a message when new content is added!
             else:
                 file_list_text += f"\n\n📊 Total: {len(folders)} folders, {len(regular_files)} files"
             
-            # Add selection mode toggle and actions (selection_mode already defined above)
+            # Add selection mode toggle and actions
             action_row = []
             if selection_mode and 'folder_selected' in context.user_data and len(context.user_data['folder_selected']) > 0:
                 selected_count = len(context.user_data['folder_selected'])
@@ -623,7 +621,7 @@ You'll get a message when new content is added!
                 keyboard.append([InlineKeyboardButton(queue_text, callback_data="view_queue")])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await message.edit_text(file_list_text, reply_markup=reply_markup)
+            await message.edit_text(file_list_text, reply_markup=reply_markup, parse_mode='Markdown')
             
         except ValueError as e:
             error_msg = f"❌ **Configuration Error**\n\n{str(e)}\n\nPlease check your .env file and /support for help."
@@ -632,9 +630,168 @@ You'll get a message when new content is added!
             error_msg = format_error_message(e, "Browsing course materials", suggest_support=True)
             await message.edit_text(error_msg, parse_mode='Markdown')
 
+    async def refresh_current_view(update: Update, context: ContextTypes.DEFAULT_TYPE, query):
+        """Re-render the current view (browse or folder) with current pagination and selection state"""
+        try:
+            # Check if we're inside a folder
+            if 'nav_history' in context.user_data and len(context.user_data['nav_history']) > 0:
+                # We're in a folder - re-render it
+                current_folder = context.user_data['nav_history'][-1]
+                folder_id = current_folder['id']
+                
+                # Use global DriveService instance
+                global drive_service_instance
+                if drive_service_instance is None:
+                    drive_service_instance = DriveService()
+                
+                drive = drive_service_instance
+                loop = asyncio.get_event_loop()
+                
+                # Get current page
+                page = context.user_data.get('current_page', 0)
+                
+                # List files in the folder
+                files = await loop.run_in_executor(None, drive.list_files, folder_id)
+                
+                # Separate folders and files
+                folders = [f for f in files if drive.is_folder(f)]
+                regular_files = [f for f in files if not drive.is_folder(f)]
+                
+                # Cache queue items once to avoid N+1 queries
+                user_id = query.from_user.id
+                queued_file_ids = set()
+                if db:
+                    queue_items = db.get_queue(user_id)
+                    queued_file_ids = {item['file_id'] for item in queue_items}
+                
+                # Pagination settings
+                ITEMS_PER_PAGE = 15
+                
+                # Create keyboard
+                keyboard = []
+                
+                # Build breadcrumb path
+                breadcrumb = "📍 **Home**"
+                for nav in context.user_data['nav_history']:
+                    breadcrumb += f" > {nav['name']}"
+                
+                file_list_text = f"{breadcrumb}\n\n"
+                
+                # Add navigation buttons
+                nav_buttons = []
+                if len(context.user_data['nav_history']) > 0:
+                    nav_buttons.append(InlineKeyboardButton("⬅️ Back", callback_data="back|back"))
+                nav_buttons.append(InlineKeyboardButton("🏠 Home", callback_data="back|home"))
+                if nav_buttons:
+                    keyboard.append(nav_buttons)
+                
+                # Check if in selection mode (cache to avoid repeated lookups)
+                selection_mode = context.user_data.get('folder_selection_mode', False)
+                
+                # Add Download as ZIP button only if NOT in selection mode
+                if not selection_mode:
+                    keyboard.append([InlineKeyboardButton("📦 Download Folder as ZIP", callback_data=f"zipfolder|{folder_id}")])
+                
+                if not files:
+                    file_list_text += "_(Empty folder)_"
+                else:
+                    # Add folders first
+                    if folders:
+                        file_list_text += "📁 **Folders:**\n"
+                        for folder in folders:
+                            keyboard.append([
+                                InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}")
+                            ])
+                        file_list_text += "\n"
+                    
+                    # Add files with pagination
+                    if regular_files:
+                        file_list_text += "📄 **Files:**\n"
+                        start_idx = page * ITEMS_PER_PAGE
+                        end_idx = start_idx + ITEMS_PER_PAGE
+                        page_files = regular_files[start_idx:end_idx]
+                        
+                        # Initialize selected set if needed
+                        if 'folder_selected' not in context.user_data:
+                            context.user_data['folder_selected'] = set()
+                        
+                        for file in page_files:
+                            # Use optimized icon detection
+                            icon = get_file_icon(file['name'])
+                            size = f" ({drive.format_file_size(file.get('size'))})" if file.get('size') else ""
+                            
+                            if selection_mode:
+                                # Selection mode: show checkbox
+                                is_selected = file['id'] in context.user_data['folder_selected']
+                                checkbox = "☑️" if is_selected else "☐"
+                                keyboard.append([
+                                    InlineKeyboardButton(
+                                        f"{checkbox} {file['name'][:48]}{'...' if len(file['name']) > 48 else ''}",
+                                        callback_data=f"folder_toggle|{file['id']}"
+                                    )
+                                ])
+                            else:
+                                # Normal mode: show download and queue buttons (use cached set)
+                                in_queue = file['id'] in queued_file_ids
+                                queue_button = "✓" if in_queue else "+"
+                                
+                                keyboard.append([
+                                    InlineKeyboardButton(
+                                        f"{icon} {file['name'][:45]}{'...' if len(file['name']) > 45 else ''}",
+                                        callback_data=f"download|{file['id']}"
+                                    ),
+                                    InlineKeyboardButton(queue_button, callback_data=f"queue_add|{file['id']}")
+                                ])
+                        
+                        # Add pagination buttons if needed
+                        if len(regular_files) > ITEMS_PER_PAGE:
+                            pag_buttons = []
+                            if page > 0:
+                                pag_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"page|{page-1}"))
+                            total_pages = (len(regular_files) - 1) // ITEMS_PER_PAGE + 1
+                            file_list_text += f"\n_Page {page + 1}/{total_pages}_"
+                            if end_idx < len(regular_files):
+                                pag_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"page|{page+1}"))
+                            if pag_buttons:
+                                keyboard.append(pag_buttons)
+                    
+                    file_list_text += f"\n\n📊 Total: {len(folders)} folders, {len(regular_files)} files"
+                
+                # Add selection mode toggle and actions
+                action_row = []
+                if selection_mode and 'folder_selected' in context.user_data and len(context.user_data['folder_selected']) > 0:
+                    selected_count = len(context.user_data['folder_selected'])
+                    action_row.append(InlineKeyboardButton(f"📦 ZIP ({selected_count})", callback_data="folder_zip_selected"))
+                
+                if len(regular_files) > 0:
+                    toggle_text = "✖️ Cancel" if selection_mode else "☑️ Select"
+                    toggle_data = "folder_selection_off" if selection_mode else "folder_selection_on"
+                    action_row.append(InlineKeyboardButton(toggle_text, callback_data=toggle_data))
+                
+                if action_row:
+                    keyboard.append(action_row)
+                
+                # Add View Queue button (queue_items was already cached earlier)
+                if db and queue_items:
+                    queue_count = len(queue_items)
+                    queue_text = f"📋 View Queue ({queue_count})" if queue_count > 0 else "📋 View Queue"
+                    keyboard.append([InlineKeyboardButton(queue_text, callback_data="view_queue")])
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(file_list_text, reply_markup=reply_markup, parse_mode='Markdown')
+            else:
+                # We're at root level - re-render browse view
+                await browse_command(update, context)
+        except Exception as e:
+            logger.error(f"Error refreshing view: {e}")
+            error_msg = format_error_message(e, "Refreshing view", suggest_support=False)
+            try:
+                await query.edit_message_text(error_msg, parse_mode='Markdown')
+            except:
+                await query.message.reply_text(error_msg, parse_mode='Markdown')
+
     async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle button clicks"""
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         global notification_service
         
         query = update.callback_query
@@ -728,16 +885,12 @@ You'll get a message when new content is added!
             context.user_data['current_page'] = 0
             
             try:
-                # Import DriveService (same as above)
-                import sys
-                from pathlib import Path
-                bot_dir = Path(__file__).parent
-                if str(bot_dir) not in sys.path:
-                    sys.path.insert(0, str(bot_dir))
-                from services.drive_service import DriveService
+                # Use global DriveService instance
+                global drive_service_instance
+                if drive_service_instance is None:
+                    drive_service_instance = DriveService()
                 
-                drive = DriveService()
-                import asyncio
+                drive = drive_service_instance
                 loop = asyncio.get_event_loop()
                 
                 # Get folder info to show name (run in executor)
@@ -753,6 +906,13 @@ You'll get a message when new content is added!
                 # Separate folders and files
                 folders = [f for f in files if drive.is_folder(f)]
                 regular_files = [f for f in files if not drive.is_folder(f)]
+                
+                # Cache queue items once to avoid N+1 queries
+                user_id = query.from_user.id
+                queued_file_ids = set()
+                if db:
+                    queue_items = db.get_queue(user_id)
+                    queued_file_ids = {item['file_id'] for item in queue_items}
                 
                 # Pagination settings
                 ITEMS_PER_PAGE = 15
@@ -776,7 +936,7 @@ You'll get a message when new content is added!
                 if nav_buttons:
                     keyboard.append(nav_buttons)
                 
-                # Check if in selection mode (early check to control ZIP button)
+                # Check if in selection mode (cache to avoid repeated lookups)
                 selection_mode = context.user_data.get('folder_selection_mode', False)
                 
                 # Add Download as ZIP button only if NOT in selection mode
@@ -802,20 +962,13 @@ You'll get a message when new content is added!
                         end_idx = start_idx + ITEMS_PER_PAGE
                         page_files = regular_files[start_idx:end_idx]
                         
-                        # Check if in selection mode
-                        selection_mode = context.user_data.get('folder_selection_mode', False)
+                        # Initialize selected set if needed
                         if 'folder_selected' not in context.user_data:
                             context.user_data['folder_selected'] = set()
                         
                         for file in page_files:
-                            # File icons
-                            name = file['name'].lower()
-                            if name.endswith('.pdf'): icon = "📄"
-                            elif name.endswith(('.doc', '.docx')): icon = "📝"
-                            elif name.endswith(('.jpg', '.jpeg', '.png')): icon = "🖼️"
-                            elif name.endswith('.mp4'): icon = "🎥"
-                            else: icon = "📎"
-                            
+                            # Use optimized icon detection
+                            icon = get_file_icon(file['name'])
                             size = f" ({drive.format_file_size(file.get('size'))})" if file.get('size') else ""
                             
                             if selection_mode:
@@ -829,13 +982,8 @@ You'll get a message when new content is added!
                                     )
                                 ])
                             else:
-                                # Normal mode: show download and queue buttons
-                                # Check if already in queue
-                                in_queue = False
-                                if db:
-                                    queue_items = db.get_queue(query.from_user.id)
-                                    in_queue = any(item['file_id'] == file['id'] for item in queue_items)
-                                
+                                # Normal mode: show download and queue buttons (use cached set)
+                                in_queue = file['id'] in queued_file_ids
                                 queue_button = "✓" if in_queue else "+"
                                 
                                 # Add button for file download with action buttons
@@ -852,7 +1000,8 @@ You'll get a message when new content is added!
                             pag_buttons = []
                             if page > 0:
                                 pag_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"page|{page-1}"))
-                            file_list_text += f"\n_Page {page + 1}/{(len(regular_files) - 1) // ITEMS_PER_PAGE + 1}_"
+                            total_pages = (len(regular_files) - 1) // ITEMS_PER_PAGE + 1
+                            file_list_text += f"\n_Page {page + 1}/{total_pages}_"
                             if end_idx < len(regular_files):
                                 pag_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"page|{page+1}"))
                             if pag_buttons:
@@ -860,13 +1009,13 @@ You'll get a message when new content is added!
                     
                     file_list_text += f"\n\n📊 Total: {len(folders)} folders, {len(regular_files)} files"
                 
-                # Add selection mode toggle and actions (selection_mode already defined above)
+                # Add selection mode toggle and actions
                 action_row = []
                 if selection_mode and 'folder_selected' in context.user_data and len(context.user_data['folder_selected']) > 0:
                     selected_count = len(context.user_data['folder_selected'])
                     action_row.append(InlineKeyboardButton(f"📦 ZIP ({selected_count})", callback_data="folder_zip_selected"))
                 
-                if len(regular_files) > 0:  # Only show selection toggle if there are files
+                if len(regular_files) > 0:
                     toggle_text = "✖️ Cancel" if selection_mode else "☑️ Select"
                     toggle_data = "folder_selection_off" if selection_mode else "folder_selection_on"
                     action_row.append(InlineKeyboardButton(toggle_text, callback_data=toggle_data))
@@ -874,9 +1023,8 @@ You'll get a message when new content is added!
                 if action_row:
                     keyboard.append(action_row)
                 
-                # Add View Queue button at the bottom
-                if db:
-                    queue_items = db.get_queue(query.from_user.id)
+                # Add View Queue button at the bottom (use cached queue count)
+                if db and queue_items:
                     queue_count = len(queue_items)
                     queue_text = f"📋 View Queue ({queue_count})" if queue_count > 0 else "📋 View Queue"
                     keyboard.append([InlineKeyboardButton(queue_text, callback_data="view_queue")])
@@ -890,106 +1038,99 @@ You'll get a message when new content is added!
         
         elif action == "back":
             # Handle different back actions
-            if value == "home":
-                # Go back to start menu
-                context.user_data['nav_history'] = []  # Clear navigation history
-                context.user_data['current_page'] = 0
-                await start_command(update, context)
-                return
-            
-            # Go back in navigation history
-            if 'nav_history' in context.user_data and len(context.user_data['nav_history']) > 0:
-                context.user_data['nav_history'].pop()  # Remove current folder
-                context.user_data['current_page'] = 0  # Reset page
-                
-                if len(context.user_data['nav_history']) == 0:
-                    # Back to root
-                    await browse_command(update, context)
-                else:
-                    # Go to parent folder - manually navigate instead of simulating click
-                    parent = context.user_data['nav_history'][-1]
-                    parent_id = parent['id']
-                    context.user_data['nav_history'].pop()  # Will be re-added when navigating
-                    
-                    # Navigate to parent by calling folder logic directly
-                    # Re-process as folder navigation
-                    import sys
-                    from pathlib import Path
-                    bot_dir = Path(__file__).parent
-                    if str(bot_dir) not in sys.path:
-                        sys.path.insert(0, str(bot_dir))
-                    from services.drive_service import DriveService
-                    
-                    drive = DriveService()
-                    import asyncio
-                    loop = asyncio.get_event_loop()
+            try:
+                if value == "home":
+                    # Go back to browse menu (root directory)
+                    context.user_data['nav_history'] = []  # Clear navigation history
                     context.user_data['current_page'] = 0
-                    context.user_data['nav_history'].append(parent)
-                    
-                    # List files and render folder view (run in executor)
-                    files = await loop.run_in_executor(None, drive.list_files, parent_id)
-                    folders = [f for f in files if drive.is_folder(f)]
-                    regular_files = [f for f in files if not drive.is_folder(f)]
-                    
-                    ITEMS_PER_PAGE = 15
-                    page = 0
-                    keyboard = []
-                    breadcrumb = "📍 **Home**"
-                    for nav in context.user_data['nav_history']:
-                        breadcrumb += f" > {nav['name']}"
-                    file_list_text = f"{breadcrumb}\n\n"
-                    
-                    nav_buttons = []
-                    if len(context.user_data['nav_history']) > 0:
-                        nav_buttons.append(InlineKeyboardButton("⬅️ Back", callback_data="back|back"))
-                    nav_buttons.append(InlineKeyboardButton("📦 Download as ZIP", callback_data=f"zipfolder|{parent_id}"))
-                    if nav_buttons:
-                        keyboard.append(nav_buttons)
-                    
-                    if folders:
-                        file_list_text += "📁 **Folders:**\n"
-                        for folder in folders:
-                            keyboard.append([InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}")])  
-                        file_list_text += "\n"
-                    
-                    if regular_files:
-                        file_list_text += "📄 **Files:**\n"
-                        for file in regular_files[:ITEMS_PER_PAGE]:
-                            name = file['name'].lower()
-                            if name.endswith('.pdf'): icon = "📄"
-                            elif name.endswith(('.doc', '.docx')): icon = "📝"
-                            elif name.endswith(('.jpg', '.jpeg', '.png')): icon = "🖼️"
-                            elif name.endswith('.mp4'): icon = "🎥"
-                            else: icon = "📎"
-                            keyboard.append([
-                                InlineKeyboardButton(f"{icon} {file['name'][:35]}{'...' if len(file['name']) > 35 else ''}", callback_data=f"download|{file['id']}"),
-                                InlineKeyboardButton("➕", callback_data=f"queue_add|{file['id']}")
-                            ])
-                    
-                    file_list_text += f"\n\n📊 Total: {len(folders)} folders, {len(regular_files)} files"
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    await query.edit_message_text(file_list_text, reply_markup=reply_markup, parse_mode='Markdown')
+                    await browse_command(update, context)
                     return
-            else:
-                await browse_command(update, context)
+                
+                # Go back in navigation history
+                if 'nav_history' in context.user_data and len(context.user_data['nav_history']) > 0:
+                    context.user_data['nav_history'].pop()  # Remove current folder
+                    context.user_data['current_page'] = 0  # Reset page
+                    
+                    if len(context.user_data['nav_history']) == 0:
+                        # Back to root
+                        await browse_command(update, context)
+                    else:
+                        # Go to parent folder - manually navigate instead of simulating click
+                        parent = context.user_data['nav_history'][-1]
+                        parent_id = parent['id']
+                        context.user_data['nav_history'].pop()  # Will be re-added when navigating
+                        
+                        # Navigate to parent by calling folder logic directly
+                        # Re-process as folder navigation
+                        global drive_service_instance
+                        if drive_service_instance is None:
+                            drive_service_instance = DriveService()
+                        
+                        drive = drive_service_instance
+                        loop = asyncio.get_event_loop()
+                        context.user_data['current_page'] = 0
+                        context.user_data['nav_history'].append(parent)
+                        
+                        # List files and render folder view (run in executor)
+                        files = await loop.run_in_executor(None, drive.list_files, parent_id)
+                        folders = [f for f in files if drive.is_folder(f)]
+                        regular_files = [f for f in files if not drive.is_folder(f)]
+                        
+                        ITEMS_PER_PAGE = 15
+                        page = 0
+                        keyboard = []
+                        breadcrumb = "📍 **Home**"
+                        for nav in context.user_data['nav_history']:
+                            breadcrumb += f" > {nav['name']}"
+                        file_list_text = f"{breadcrumb}\n\n"
+                        
+                        nav_buttons = []
+                        if len(context.user_data['nav_history']) > 0:
+                            nav_buttons.append(InlineKeyboardButton("⬅️ Back", callback_data="back|back"))
+                        nav_buttons.append(InlineKeyboardButton("📦 Download as ZIP", callback_data=f"zipfolder|{parent_id}"))
+                        if nav_buttons:
+                            keyboard.append(nav_buttons)
+                        
+                        if folders:
+                            file_list_text += "📁 **Folders:**\n"
+                            for folder in folders:
+                                keyboard.append([InlineKeyboardButton(f"📁 {folder['name']}", callback_data=f"folder|{folder['id']}")])  
+                            file_list_text += "\n"
+                        
+                        if regular_files:
+                            file_list_text += "📄 **Files:**\n"
+                            for file in regular_files[:ITEMS_PER_PAGE]:
+                                icon = get_file_icon(file['name'])
+                                keyboard.append([
+                                    InlineKeyboardButton(f"{icon} {file['name'][:35]}{'...' if len(file['name']) > 35 else ''}", callback_data=f"download|{file['id']}"),
+                                    InlineKeyboardButton("➕", callback_data=f"queue_add|{file['id']}")
+                                ])
+                        
+                        file_list_text += f"\n\n📊 Total: {len(folders)} folders, {len(regular_files)} files"
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        await query.edit_message_text(file_list_text, reply_markup=reply_markup, parse_mode='Markdown')
+                        return
+                else:
+                    await browse_command(update, context)
+            except Exception as e:
+                logger.error(f"Error in back handler: {e}")
+                error_msg = format_error_message(e, "Going back to browse", suggest_support=False)
+                try:
+                    await query.edit_message_text(error_msg, parse_mode='Markdown')
+                except:
+                    # If edit fails, send a new message
+                    await query.message.reply_text(error_msg, parse_mode='Markdown')
         
         elif action == "zipfolder":
             folder_id = value
             await query.message.reply_text("📦 Creating ZIP archive... This may take a while for large folders.")
             
             try:
-                import sys
-                from pathlib import Path
-                import asyncio
-                bot_dir = Path(__file__).parent
-                if str(bot_dir) not in sys.path:
-                    sys.path.insert(0, str(bot_dir))
-                from services.drive_service import DriveService
-                import zipfile
-                from io import BytesIO
-                import os
+                global drive_service_instance
+                if drive_service_instance is None:
+                    drive_service_instance = DriveService()
                 
-                drive = DriveService()
+                drive = drive_service_instance
                 
                 # Run blocking operations in executor to avoid blocking other users
                 loop = asyncio.get_event_loop()
@@ -1117,15 +1258,11 @@ You'll get a message when new content is added!
             user_id = query.from_user.id
             
             try:
-                import sys
-                from pathlib import Path
-                bot_dir = Path(__file__).parent
-                if str(bot_dir) not in sys.path:
-                    sys.path.insert(0, str(bot_dir))
-                from services.drive_service import DriveService
-                import asyncio
+                global drive_service_instance
+                if drive_service_instance is None:
+                    drive_service_instance = DriveService()
                 
-                drive = DriveService()
+                drive = drive_service_instance
                 loop = asyncio.get_event_loop()
                 file_info = await loop.run_in_executor(None, drive.get_file_info, file_id)
                 
@@ -1164,15 +1301,11 @@ You'll get a message when new content is added!
             user_id = query.from_user.id
             
             try:
-                import sys
-                from pathlib import Path
-                bot_dir = Path(__file__).parent
-                if str(bot_dir) not in sys.path:
-                    sys.path.insert(0, str(bot_dir))
-                from services.drive_service import DriveService
-                import asyncio
+                global drive_service_instance
+                if drive_service_instance is None:
+                    drive_service_instance = DriveService()
                 
-                drive = DriveService()
+                drive = drive_service_instance
                 loop = asyncio.get_event_loop()
                 file_info = await loop.run_in_executor(None, drive.get_file_info, file_id)
                 
@@ -1223,15 +1356,12 @@ You'll get a message when new content is added!
             await query.message.reply_text(f"📥 Downloading {len(queue_items)} files from queue...")
             
             try:
-                # Import DriveService
-                import sys
-                from pathlib import Path
-                bot_dir = Path(__file__).parent
-                if str(bot_dir) not in sys.path:
-                    sys.path.insert(0, str(bot_dir))
-                from services.drive_service import DriveService
+                # Use global DriveService instance
+                global drive_service_instance
+                if drive_service_instance is None:
+                    drive_service_instance = DriveService()
                 
-                drive = DriveService()
+                drive = drive_service_instance
                 successful = 0
                 failed = 0
                 
@@ -1317,17 +1447,11 @@ You'll get a message when new content is added!
             await query.message.reply_text(f"📦 Preparing ZIP file with {len(selected_items)} selected files...")
             
             try:
-                import sys
-                from pathlib import Path
-                bot_dir = Path(__file__).parent
-                if str(bot_dir) not in sys.path:
-                    sys.path.insert(0, str(bot_dir))
-                from services.drive_service import DriveService
-                import asyncio
-                from io import BytesIO
-                import zipfile
+                global drive_service_instance
+                if drive_service_instance is None:
+                    drive_service_instance = DriveService()
                 
-                drive = DriveService()
+                drive = drive_service_instance
                 loop = asyncio.get_event_loop()
                 
                 # Create ZIP in memory
@@ -1383,17 +1507,8 @@ You'll get a message when new content is added!
             context.user_data['folder_selected'] = set()
             await query.answer("☑️ Selection mode enabled")
             
-            # Re-render the current folder view
-            if 'nav_history' in context.user_data and len(context.user_data['nav_history']) > 0:
-                # Simulate clicking the current folder again
-                current_folder_id = context.user_data['nav_history'][-1]
-                query.data = f"folder|{current_folder_id}"
-                # Don't call query.answer() again, already called above
-                # Recursive call to folder handler
-                await button_click(update, context)
-            else:
-                # At root level
-                await browse_command(update, context)
+            # Re-render the current view with selection mode enabled
+            await refresh_current_view(update, context, query)
         
         elif action == "folder_selection_off":
             # Disable selection mode for folder view
@@ -1401,13 +1516,8 @@ You'll get a message when new content is added!
             context.user_data['folder_selected'] = set()
             await query.answer("✖️ Selection mode disabled")
             
-            # Re-render the current folder view
-            if 'nav_history' in context.user_data and len(context.user_data['nav_history']) > 0:
-                current_folder_id = context.user_data['nav_history'][-1]
-                query.data = f"folder|{current_folder_id}"
-                await button_click(update, context)
-            else:
-                await browse_command(update, context)
+            # Re-render the current view with selection mode disabled
+            await refresh_current_view(update, context, query)
         
         elif action == "folder_toggle":
             # Toggle selection of a file in folder view
@@ -1466,17 +1576,11 @@ You'll get a message when new content is added!
             await query.message.reply_text(f"📦 Preparing ZIP file with {len(selected_ids)} selected files...")
             
             try:
-                import sys
-                from pathlib import Path
-                bot_dir = Path(__file__).parent
-                if str(bot_dir) not in sys.path:
-                    sys.path.insert(0, str(bot_dir))
-                from services.drive_service import DriveService
-                import asyncio
-                from io import BytesIO
-                import zipfile
+                global drive_service_instance
+                if drive_service_instance is None:
+                    drive_service_instance = DriveService()
                 
-                drive = DriveService()
+                drive = drive_service_instance
                 loop = asyncio.get_event_loop()
                 
                 # Create ZIP in memory
@@ -1525,15 +1629,11 @@ You'll get a message when new content is added!
             user_id = query.from_user.id
             
             try:
-                import sys
-                from pathlib import Path
-                bot_dir = Path(__file__).parent
-                if str(bot_dir) not in sys.path:
-                    sys.path.insert(0, str(bot_dir))
-                from services.drive_service import DriveService
-                import asyncio
+                global drive_service_instance
+                if drive_service_instance is None:
+                    drive_service_instance = DriveService()
                 
-                drive = DriveService()
+                drive = drive_service_instance
                 loop = asyncio.get_event_loop()
                 folder_info = await loop.run_in_executor(None, drive.get_file_info, folder_id)
                 
@@ -1572,16 +1672,12 @@ You'll get a message when new content is added!
             await query.message.reply_text("⬇️ Starting download...")
             
             try:
-                # Import DriveService
-                import sys
-                from pathlib import Path
-                import asyncio
-                bot_dir = Path(__file__).parent
-                if str(bot_dir) not in sys.path:
-                    sys.path.insert(0, str(bot_dir))
-                from services.drive_service import DriveService
+                # Use global DriveService instance
+                global drive_service_instance
+                if drive_service_instance is None:
+                    drive_service_instance = DriveService()
                 
-                drive = DriveService()
+                drive = drive_service_instance
                 loop = asyncio.get_event_loop()
                 file_info = await loop.run_in_executor(None, drive.get_file_info, file_id)
                 
@@ -2212,16 +2308,11 @@ You'll get a message when new content is added!
         search_query = ' '.join(context.args).lower()
         
         try:
-            import sys
-            from pathlib import Path
-            bot_dir = Path(__file__).parent
-            if str(bot_dir) not in sys.path:
-                sys.path.insert(0, str(bot_dir))
-            from services.drive_service import DriveService
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            global drive_service_instance
+            if drive_service_instance is None:
+                drive_service_instance = DriveService()
             
-            drive = DriveService()
-            import asyncio
+            drive = drive_service_instance
             loop = asyncio.get_event_loop()
             
             # Get current folder ID from navigation history
@@ -2254,14 +2345,8 @@ You'll get a message when new content is added!
             
             keyboard = []
             for file in matching_files[:15]:  # Limit to 15 results
-                # File icon
-                name = file['name'].lower()
-                if name.endswith('.pdf'): icon = "📄"
-                elif name.endswith(('.doc', '.docx')): icon = "📝"
-                elif name.endswith(('.jpg', '.jpeg', '.png')): icon = "🖼️"
-                elif name.endswith('.mp4'): icon = "🎥"
-                else: icon = "📎"
-                
+                # File icon using helper function
+                icon = get_file_icon(file['name'])
                 size = f" ({format_file_size(int(file['size']))})" if file.get('size') else ""
                 
                 keyboard.append([

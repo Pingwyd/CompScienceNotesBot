@@ -207,6 +207,18 @@ class Database:
             cursor = self.connection.cursor()
             
             if self.db_type == 'postgresql':
+                # Check if users table exists first
+                cursor.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_name='users'
+                    )
+                """)
+                table_exists = cursor.fetchone()[0]
+                if not table_exists:
+                    logger.debug("Users table doesn't exist yet, skipping migration")
+                    return
+                
                 # PostgreSQL way to check column exists
                 cursor.execute("""
                     SELECT column_name FROM information_schema.columns 
@@ -219,6 +231,12 @@ class Database:
                         self.connection.commit()
                     logger.info("✓ Successfully added last_active column")
             else:
+                # Check if users table exists first (SQLite)
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+                if not cursor.fetchone():
+                    logger.debug("Users table doesn't exist yet, skipping migration")
+                    return
+                
                 # SQLite way
                 cursor.execute("PRAGMA table_info(users)")
                 cols = [row[1] if isinstance(row, tuple) else row['name'] for row in cursor.fetchall()]
