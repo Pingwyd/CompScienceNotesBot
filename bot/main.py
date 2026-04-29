@@ -467,7 +467,12 @@ You'll get a message when new content is added!
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(help_text, reply_markup=reply_markup)
+        
+        # Handle both callback queries (button clicks) and direct commands
+        if update.callback_query:
+            await update.callback_query.edit_message_text(help_text, reply_markup=reply_markup, parse_mode='Markdown')
+        else:
+            await update.message.reply_text(help_text, reply_markup=reply_markup, parse_mode='Markdown')
     
     from telegram.ext import CallbackQueryHandler, ContextTypes
 
@@ -1691,6 +1696,7 @@ You'll get a message when new content is added!
     # Register command handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("h", help_command))
     application.add_handler(CommandHandler("browse", browse_command))
     application.add_handler(CommandHandler("search", search_command))
     application.add_handler(CommandHandler("restart", restart_command))
@@ -1702,7 +1708,10 @@ You'll get a message when new content is added!
         global notification_service
         
         if notification_service is None:
-            await update.message.reply_text("❌ Notification service is not available.")
+            if update.callback_query:
+                await update.callback_query.edit_message_text("❌ Notification service is not available.")
+            else:
+                await update.message.reply_text("❌ Notification service is not available.")
             return
         
         user_id = update.effective_user.id
@@ -1718,7 +1727,11 @@ You'll get a message when new content is added!
         keyboard = [[button]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(status_text, reply_markup=reply_markup, parse_mode='Markdown')
+        # Handle both callback queries (button clicks) and direct commands
+        if update.callback_query:
+            await update.callback_query.edit_message_text(status_text, reply_markup=reply_markup, parse_mode='Markdown')
+        else:
+            await update.message.reply_text(status_text, reply_markup=reply_markup, parse_mode='Markdown')
     
     async def notification_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle the /notification_on command - enable notifications"""
