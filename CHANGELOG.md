@@ -4,6 +4,25 @@ All notable changes to this bot will be documented here.
 
 ---
 
+## [2.1.0] - 2026-04-29
+
+### 🛠️ Refactor & Fixes
+- Centralized `get_drive_service()` accessor to lazily initialize the DriveService and avoid in-function `global` declarations (fixes Render deploy SyntaxError).
+- Removed the ephemeral file selection system and consolidated to a persistent, DB-backed queue for multi-file downloads.
+- Moved Telegram imports out of inner functions to module-level to avoid local-binding/UnboundLocalError issues.
+- Queue-first UX: files show a queue `➕` button and `📋 View Queue` is visible on all browse pages.
+
+### ✨ Improvements
+- Back navigation now supports `back|browse` (browse root) and `back|home` (start), with consistent callback handling.
+- `stats_command` now supports callback queries and includes a "🏠 Back to Start" button.
+- Notifications view includes a "🏠 Back to Start" button and improved callback handling.
+
+### 🐛 Bug Fixes
+- Fixed "name 'drive_service_instance' is used prior to global declaration" SyntaxError in `bot/main.py`.
+- Fixed inconsistent callback handling that caused some Back/Stats buttons to fail.
+- Fixed UnboundLocalError caused by inner imports in callback handlers.
+
+
 ## [2.0.0] - 2026-02-02
 
 ### 🎉 Major Features Added
