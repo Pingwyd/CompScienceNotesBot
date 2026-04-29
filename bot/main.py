@@ -337,7 +337,6 @@ def main():
     # Add command handlers
     async def start_command(update, context):
         """Handle the /start command"""
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         
         user = update.effective_user
         
@@ -401,7 +400,6 @@ Need help? Use /support to report issues!
     
     async def help_command(update, context):
         """Handle the /help command"""
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         
         user_id = update.effective_user.id
         is_admin = user_id in ADMIN_IDS
@@ -471,7 +469,6 @@ You'll get a message when new content is added!
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(help_text, reply_markup=reply_markup)
     
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
     from telegram.ext import CallbackQueryHandler, ContextTypes
 
     async def browse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1503,7 +1500,6 @@ You'll get a message when new content is added!
             
             # Update the keyboard immediately
             if query.message.reply_markup:
-                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
                 new_keyboard = []
                 selected = context.user_data['folder_selected']
                 
@@ -1711,8 +1707,6 @@ You'll get a message when new content is added!
         
         user_id = update.effective_user.id
         is_subscribed = notification_service.is_subscribed(user_id)
-        
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         
         if is_subscribed:
             status_text = "🔔 **Notification Status: ON**\n\nYou will receive notifications when new files are added to the drive (checked every 2 days)."
@@ -1936,8 +1930,6 @@ You'll get a message when new content is added!
                 await update.message.reply_text("📥 You haven't downloaded any files yet.\n\nUse /browse to explore files!")
                 return
             
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-            
             # Show last 10 downloads - use HTML to avoid parsing issues
             text = "📥 <b>Recent Downloads</b>\n\n"
             keyboard = []
@@ -1989,7 +1981,6 @@ You'll get a message when new content is added!
     
     async def queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle the /queue command - show download queue"""
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         
         user_id = update.effective_user.id
         
