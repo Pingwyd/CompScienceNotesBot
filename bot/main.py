@@ -531,10 +531,7 @@ You'll get a message when new content is added!
             file_list_text = "📍 **Home** > Course Materials\n\n"
             
             # Add Home/Back button at root level
-            keyboard.append([InlineKeyboardButton("🏠 Back to Start", callback_data="start_browse")])
-            
-            # Check selection mode early
-            selection_mode = context.user_data.get('folder_selection_mode', False)
+            keyboard.append([InlineKeyboardButton("🏠 Back to Start", callback_data="back|home")])
             
             # Add folders first (no pagination for folders, usually not many)
             if folders:
@@ -552,37 +549,22 @@ You'll get a message when new content is added!
                 end_idx = start_idx + ITEMS_PER_PAGE
                 page_files = regular_files[start_idx:end_idx]
                 
-                # Initialize selected set if needed
-                if 'folder_selected' not in context.user_data:
-                    context.user_data['folder_selected'] = set()
-                
                 for file in page_files:
                     # Use optimized icon detection
                     icon = get_file_icon(file['name'])
                     size = f" ({drive.format_file_size(file.get('size'))})" if file.get('size') else ""
                     
-                    if selection_mode:
-                        # Selection mode: show checkbox
-                        is_selected = file['id'] in context.user_data['folder_selected']
-                        checkbox = "☑️" if is_selected else "☐"
-                        keyboard.append([
-                            InlineKeyboardButton(
-                                f"{checkbox} {icon} {file['name'][:45]}{'...' if len(file['name']) > 45 else ''}",
-                                callback_data=f"folder_toggle|{file['id']}"
-                            )
-                        ])
-                    else:
-                        # Normal mode: show download and queue buttons (use cached set)
-                        in_queue = file['id'] in queued_file_ids
-                        queue_button = "✓" if in_queue else "+"
-                        
-                        keyboard.append([
-                            InlineKeyboardButton(
-                                f"{icon} {file['name'][:45]}{'...' if len(file['name']) > 45 else ''}",
-                                callback_data=f"download|{file['id']}"
-                            ),
-                            InlineKeyboardButton(queue_button, callback_data=f"queue_add|{file['id']}")
-                        ])
+                    # Always show download and queue buttons (use cached set)
+                    in_queue = file['id'] in queued_file_ids
+                    queue_button = "✓" if in_queue else "+"
+                    
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            f"{icon} {file['name'][:45]}{'...' if len(file['name']) > 45 else ''}",
+                            callback_data=f"download|{file['id']}"
+                        ),
+                        InlineKeyboardButton(queue_button, callback_data=f"queue_add|{file['id']}")
+                    ])
                 
                 # Add pagination buttons if needed
                 if len(regular_files) > ITEMS_PER_PAGE:
@@ -600,20 +582,6 @@ You'll get a message when new content is added!
                 file_list_text += "_(No items)_"
             else:
                 file_list_text += f"\n\n📊 Total: {len(folders)} folders, {len(regular_files)} files"
-            
-            # Add selection mode toggle and actions
-            action_row = []
-            if selection_mode and 'folder_selected' in context.user_data and len(context.user_data['folder_selected']) > 0:
-                selected_count = len(context.user_data['folder_selected'])
-                action_row.append(InlineKeyboardButton(f"📦 ZIP ({selected_count})", callback_data="folder_zip_selected"))
-            
-            if len(regular_files) > 0:  # Only show selection toggle if there are files
-                toggle_text = "✖️ Cancel" if selection_mode else "☑️ Select"
-                toggle_data = "folder_selection_off" if selection_mode else "folder_selection_on"
-                action_row.append(InlineKeyboardButton(toggle_text, callback_data=toggle_data))
-            
-            if action_row:
-                keyboard.append(action_row)
             
             # Add View Queue button at the bottom
             if db:
@@ -683,12 +651,8 @@ You'll get a message when new content is added!
                 if nav_buttons:
                     keyboard.append(nav_buttons)
                 
-                # Check if in selection mode (cache to avoid repeated lookups)
-                selection_mode = context.user_data.get('folder_selection_mode', False)
-                
-                # Add Download as ZIP button only if NOT in selection mode
-                if not selection_mode:
-                    keyboard.append([InlineKeyboardButton("📦 Download Folder as ZIP", callback_data=f"zipfolder|{folder_id}")])
+                # Always show Download as ZIP button
+                keyboard.append([InlineKeyboardButton("📦 Download Folder as ZIP", callback_data=f"zipfolder|{folder_id}")])
                 
                 if not files:
                     file_list_text += "_(Empty folder)_"
@@ -709,37 +673,22 @@ You'll get a message when new content is added!
                         end_idx = start_idx + ITEMS_PER_PAGE
                         page_files = regular_files[start_idx:end_idx]
                         
-                        # Initialize selected set if needed
-                        if 'folder_selected' not in context.user_data:
-                            context.user_data['folder_selected'] = set()
-                        
                         for file in page_files:
                             # Use optimized icon detection
                             icon = get_file_icon(file['name'])
                             size = f" ({drive.format_file_size(file.get('size'))})" if file.get('size') else ""
                             
-                            if selection_mode:
-                                # Selection mode: show checkbox
-                                is_selected = file['id'] in context.user_data['folder_selected']
-                                checkbox = "☑️" if is_selected else "☐"
-                                keyboard.append([
-                                    InlineKeyboardButton(
-                                        f"{checkbox} {file['name'][:48]}{'...' if len(file['name']) > 48 else ''}",
-                                        callback_data=f"folder_toggle|{file['id']}"
-                                    )
-                                ])
-                            else:
-                                # Normal mode: show download and queue buttons (use cached set)
-                                in_queue = file['id'] in queued_file_ids
-                                queue_button = "✓" if in_queue else "+"
-                                
-                                keyboard.append([
-                                    InlineKeyboardButton(
-                                        f"{icon} {file['name'][:45]}{'...' if len(file['name']) > 45 else ''}",
-                                        callback_data=f"download|{file['id']}"
-                                    ),
-                                    InlineKeyboardButton(queue_button, callback_data=f"queue_add|{file['id']}")
-                                ])
+                            # Always show download and queue buttons (use cached set)
+                            in_queue = file['id'] in queued_file_ids
+                            queue_button = "✓" if in_queue else "+"
+                            
+                            keyboard.append([
+                                InlineKeyboardButton(
+                                    f"{icon} {file['name'][:45]}{'...' if len(file['name']) > 45 else ''}",
+                                    callback_data=f"download|{file['id']}"
+                                ),
+                                InlineKeyboardButton(queue_button, callback_data=f"queue_add|{file['id']}")
+                            ])
                         
                         # Add pagination buttons if needed
                         if len(regular_files) > ITEMS_PER_PAGE:
@@ -755,22 +704,9 @@ You'll get a message when new content is added!
                     
                     file_list_text += f"\n\n📊 Total: {len(folders)} folders, {len(regular_files)} files"
                 
-                # Add selection mode toggle and actions
-                action_row = []
-                if selection_mode and 'folder_selected' in context.user_data and len(context.user_data['folder_selected']) > 0:
-                    selected_count = len(context.user_data['folder_selected'])
-                    action_row.append(InlineKeyboardButton(f"📦 ZIP ({selected_count})", callback_data="folder_zip_selected"))
-                
-                if len(regular_files) > 0:
-                    toggle_text = "✖️ Cancel" if selection_mode else "☑️ Select"
-                    toggle_data = "folder_selection_off" if selection_mode else "folder_selection_on"
-                    action_row.append(InlineKeyboardButton(toggle_text, callback_data=toggle_data))
-                
-                if action_row:
-                    keyboard.append(action_row)
-                
-                # Add View Queue button (queue_items was already cached earlier)
-                if db and queue_items:
+                # Always show View Queue button
+                if db:
+                    queue_items = db.get_queue(query.from_user.id)
                     queue_count = len(queue_items)
                     queue_text = f"📋 View Queue ({queue_count})" if queue_count > 0 else "📋 View Queue"
                     keyboard.append([InlineKeyboardButton(queue_text, callback_data="view_queue")])
@@ -930,12 +866,8 @@ You'll get a message when new content is added!
                 if nav_buttons:
                     keyboard.append(nav_buttons)
                 
-                # Check if in selection mode (cache to avoid repeated lookups)
-                selection_mode = context.user_data.get('folder_selection_mode', False)
-                
-                # Add Download as ZIP button only if NOT in selection mode
-                if not selection_mode:
-                    keyboard.append([InlineKeyboardButton("📦 Download Folder as ZIP", callback_data=f"zipfolder|{folder_id}")])
+                # Always show Download as ZIP button
+                keyboard.append([InlineKeyboardButton("📦 Download Folder as ZIP", callback_data=f"zipfolder|{folder_id}")])
                 
                 if not files:
                     file_list_text += "_(Empty folder)_"
@@ -956,38 +888,23 @@ You'll get a message when new content is added!
                         end_idx = start_idx + ITEMS_PER_PAGE
                         page_files = regular_files[start_idx:end_idx]
                         
-                        # Initialize selected set if needed
-                        if 'folder_selected' not in context.user_data:
-                            context.user_data['folder_selected'] = set()
-                        
                         for file in page_files:
                             # Use optimized icon detection
                             icon = get_file_icon(file['name'])
                             size = f" ({drive.format_file_size(file.get('size'))})" if file.get('size') else ""
                             
-                            if selection_mode:
-                                # Selection mode: show checkbox
-                                is_selected = file['id'] in context.user_data['folder_selected']
-                                checkbox = "☑️" if is_selected else "☐"
-                                keyboard.append([
-                                    InlineKeyboardButton(
-                                        f"{checkbox} {file['name'][:48]}{'...' if len(file['name']) > 48 else ''}",
-                                        callback_data=f"folder_toggle|{file['id']}"
-                                    )
-                                ])
-                            else:
-                                # Normal mode: show download and queue buttons (use cached set)
-                                in_queue = file['id'] in queued_file_ids
-                                queue_button = "✓" if in_queue else "+"
-                                
-                                # Add button for file download with action buttons
-                                keyboard.append([
-                                    InlineKeyboardButton(
-                                        f"{icon} {file['name'][:45]}{'...' if len(file['name']) > 45 else ''}",
-                                        callback_data=f"download|{file['id']}"
-                                    ),
-                                    InlineKeyboardButton(queue_button, callback_data=f"queue_add|{file['id']}")
-                                ])
+                            # Always show download and queue buttons (use cached set)
+                            in_queue = file['id'] in queued_file_ids
+                            queue_button = "✓" if in_queue else "+"
+                            
+                            # Add button for file download with action buttons
+                            keyboard.append([
+                                InlineKeyboardButton(
+                                    f"{icon} {file['name'][:45]}{'...' if len(file['name']) > 45 else ''}",
+                                    callback_data=f"download|{file['id']}"
+                                ),
+                                InlineKeyboardButton(queue_button, callback_data=f"queue_add|{file['id']}")
+                            ])
                         
                         # Add pagination buttons if needed
                         if len(regular_files) > ITEMS_PER_PAGE:
@@ -1003,22 +920,9 @@ You'll get a message when new content is added!
                     
                     file_list_text += f"\n\n📊 Total: {len(folders)} folders, {len(regular_files)} files"
                 
-                # Add selection mode toggle and actions
-                action_row = []
-                if selection_mode and 'folder_selected' in context.user_data and len(context.user_data['folder_selected']) > 0:
-                    selected_count = len(context.user_data['folder_selected'])
-                    action_row.append(InlineKeyboardButton(f"📦 ZIP ({selected_count})", callback_data="folder_zip_selected"))
-                
-                if len(regular_files) > 0:
-                    toggle_text = "✖️ Cancel" if selection_mode else "☑️ Select"
-                    toggle_data = "folder_selection_off" if selection_mode else "folder_selection_on"
-                    action_row.append(InlineKeyboardButton(toggle_text, callback_data=toggle_data))
-                
-                if action_row:
-                    keyboard.append(action_row)
-                
-                # Add View Queue button at the bottom (use cached queue count)
-                if db and queue_items:
+                # Always show View Queue button
+                if db:
+                    queue_items = db.get_queue(query.from_user.id)
                     queue_count = len(queue_items)
                     queue_text = f"📋 View Queue ({queue_count})" if queue_count > 0 else "📋 View Queue"
                     keyboard.append([InlineKeyboardButton(queue_text, callback_data="view_queue")])
@@ -1034,10 +938,10 @@ You'll get a message when new content is added!
             # Handle different back actions
             try:
                 if value == "home":
-                    # Go back to browse menu (root directory)
+                    # Go back to start command (main menu)
                     context.user_data['nav_history'] = []  # Clear navigation history
                     context.user_data['current_page'] = 0
-                    await browse_command(update, context)
+                    await start_command(update, context)
                     return
                 
                 # Go back in navigation history
@@ -1471,123 +1375,6 @@ You'll get a message when new content is added!
             else:
                 await query.answer("❌ Failed to clear queue")
         
-        elif action == "folder_selection_on":
-            # Enable selection mode for folder view
-            context.user_data['folder_selection_mode'] = True
-            context.user_data['folder_selected'] = set()
-            await query.answer("☑️ Selection mode enabled")
-            
-            # Re-render the current view with selection mode enabled
-            await refresh_current_view(update, context, query)
-        
-        elif action == "folder_selection_off":
-            # Disable selection mode for folder view
-            context.user_data['folder_selection_mode'] = False
-            context.user_data['folder_selected'] = set()
-            await query.answer("✖️ Selection mode disabled")
-            
-            # Re-render the current view with selection mode disabled
-            await refresh_current_view(update, context, query)
-        
-        elif action == "folder_toggle":
-            # Toggle selection of a file in folder view
-            file_id = value
-            
-            if 'folder_selected' not in context.user_data:
-                context.user_data['folder_selected'] = set()
-            
-            if file_id in context.user_data['folder_selected']:
-                context.user_data['folder_selected'].remove(file_id)
-                await query.answer("☐ Unselected")
-            else:
-                context.user_data['folder_selected'].add(file_id)
-                await query.answer("☑️ Selected")
-            
-            # Update the keyboard immediately
-            if query.message.reply_markup:
-                new_keyboard = []
-                selected = context.user_data['folder_selected']
-                
-                for row in query.message.reply_markup.inline_keyboard:
-                    new_row = []
-                    for button in row:
-                        # Update file toggle buttons
-                        if button.callback_data and button.callback_data.startswith("folder_toggle|"):
-                            btn_file_id = button.callback_data.split("|")[1]
-                            text = button.text
-                            # Replace checkbox (first 2 characters to handle emoji)
-                            if btn_file_id in selected:
-                                new_text = "☑️" + text[2:] if len(text) > 2 else "☑️"
-                            else:
-                                new_text = "☐" + text[2:] if len(text) > 2 else "☐"
-                            new_row.append(InlineKeyboardButton(new_text, callback_data=button.callback_data))
-                        # Update ZIP Selected button count
-                        elif button.callback_data == "folder_zip_selected" and len(selected) > 0:
-                            new_row.append(InlineKeyboardButton(f"📦 ZIP Selected ({len(selected)})", callback_data="folder_zip_selected"))
-                        else:
-                            new_row.append(button)
-                    if new_row:  # Only add non-empty rows
-                        new_keyboard.append(new_row)
-                
-                await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_keyboard))
-        
-        elif action == "folder_zip_selected":
-            # Download selected folder files as ZIP
-            user_id = query.from_user.id
-            
-            if 'folder_selected' not in context.user_data or not context.user_data['folder_selected']:
-                await query.answer("⚠️ No files selected")
-                return
-            
-            selected_ids = context.user_data['folder_selected']
-            
-            await query.answer(f"📦 Creating ZIP with {len(selected_ids)} files...")
-            await query.message.reply_text(f"📦 Preparing ZIP file with {len(selected_ids)} selected files...")
-            
-            try:
-                drive = get_drive_service()
-                loop = asyncio.get_event_loop()
-                
-                # Create ZIP in memory
-                zip_buffer = BytesIO()
-                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                    for file_id in selected_ids:
-                        try:
-                            # Get file info first
-                            file_info = await loop.run_in_executor(None, drive.get_file_info, file_id)
-                            if not file_info:
-                                continue
-                            
-                            file_name = file_info['name']
-                            file_content = await loop.run_in_executor(None, drive.download_file, file_id)
-                            
-                            if file_content:
-                                zip_file.writestr(file_name, file_content.read())
-                                logger.info(f"Added {file_name} to ZIP")
-                            else:
-                                logger.error(f"Failed to download {file_name}")
-                        except Exception as e:
-                            logger.error(f"Error adding file {file_id} to ZIP: {e}")
-                
-                zip_buffer.seek(0)
-                
-                # Send ZIP file
-                await query.message.reply_document(
-                    document=zip_buffer,
-                    filename=f"selected_files_{len(selected_ids)}.zip",
-                    caption=f"📦 {len(selected_ids)} files zipped"
-                )
-                
-                # Clear selection and turn off selection mode
-                context.user_data['folder_selected'] = set()
-                context.user_data['folder_selection_mode'] = False
-                
-                await query.message.reply_text("✅ Selected files sent!")
-                
-            except Exception as e:
-                logger.error(f"Error creating ZIP: {e}")
-                await query.message.reply_text(f"❌ Error creating ZIP: {str(e)}")
-        
         elif action == "shortcut_add":
             # Add folder shortcut
             folder_id = value
@@ -1724,7 +1511,7 @@ You'll get a message when new content is added!
             status_text = "🔕 **Notification Status: OFF**\n\nYou won't receive notifications about new files."
             button = InlineKeyboardButton("🔔 Turn ON Notifications", callback_data="notif|subscribe")
         
-        keyboard = [[button]]
+        keyboard = [[button], [InlineKeyboardButton("🏠 Back to Start", callback_data="back|home")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # Handle both callback queries (button clicks) and direct commands
