@@ -792,7 +792,7 @@ You'll get a message when new content is added!
 
     async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle button clicks"""
-        global notification_service
+        global notification_service, drive_service_instance
         
         query = update.callback_query
         await query.answer()  # Acknowledge the click
