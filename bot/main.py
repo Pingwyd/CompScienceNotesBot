@@ -396,7 +396,12 @@ Need help? Use /support to report issues!
             welcome_text += "\n🌟 **First time here? Click 'Browse Files' to get started!**"
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+        
+        # Handle both direct commands and button callbacks
+        if update.callback_query:
+            await update.callback_query.edit_message_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+        else:
+            await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
     
     async def help_command(update, context):
         """Handle the /help command"""
@@ -942,6 +947,12 @@ You'll get a message when new content is added!
                     context.user_data['nav_history'] = []  # Clear navigation history
                     context.user_data['current_page'] = 0
                     await start_command(update, context)
+                    return
+                if value == "browse":
+                    # Go back to the browse root view
+                    context.user_data['nav_history'] = []
+                    context.user_data['current_page'] = 0
+                    await browse_command(update, context)
                     return
                 
                 # Go back in navigation history
@@ -1643,8 +1654,15 @@ You'll get a message when new content is added!
                     # Escape HTML special characters
                     file_name = file_name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                     stats_text += f"  • {file_name}\n"
-            
-            await update.message.reply_text(stats_text, parse_mode='HTML')
+
+            # Add a back button to return to start
+            keyboard = [[InlineKeyboardButton("🏠 Back to Start", callback_data="back|home")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            if update.callback_query:
+                await update.callback_query.edit_message_text(stats_text, reply_markup=reply_markup, parse_mode='HTML')
+            else:
+                await update.message.reply_text(stats_text, reply_markup=reply_markup, parse_mode='HTML')
         except Exception as e:
             await update.message.reply_text(f"❌ Error fetching stats: {str(e)}")
     
@@ -1797,7 +1815,7 @@ You'll get a message when new content is added!
             
             if not queue_items:
                 message_text = "📋 Your download queue is empty.\n\nAdd files with the ➕ button while browsing!"
-                keyboard = [[InlineKeyboardButton("⬅️ Back to Browse", callback_data="back|home")]]
+                keyboard = [[InlineKeyboardButton("⬅️ Back to Browse", callback_data="back|browse")]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 if update.callback_query:
@@ -1849,8 +1867,8 @@ You'll get a message when new content is added!
             keyboard.append(action_row)
             keyboard.append([InlineKeyboardButton("🗑️ Clear Queue", callback_data="queue_clear")])
             
-            # Add back button
-            keyboard.append([InlineKeyboardButton("⬅️ Back to Browse", callback_data="back|home")])
+            # Add back button (go to browse view)
+            keyboard.append([InlineKeyboardButton("⬅️ Back to Browse", callback_data="back|browse")])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
