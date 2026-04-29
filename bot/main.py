@@ -68,6 +68,14 @@ def get_file_icon(filename: str) -> str:
             return icon
     return '📎'  # Default icon
 
+
+def get_drive_service():
+    """Accessor for the global DriveService instance with lazy initialization."""
+    global drive_service_instance
+    if drive_service_instance is None:
+        drive_service_instance = DriveService()
+    return drive_service_instance
+
 # Flask app for health check endpoint
 flask_app = Flask(__name__)
 
@@ -101,15 +109,11 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = await update.message.reply_text(f"🔍 Searching for '{query}'...", parse_mode='Markdown')
     
     try:
-        global drive_service_instance
-        
-        # Use cached DriveService or create new one
-        if drive_service_instance is None:
-            drive_service_instance = DriveService()
+        drive = get_drive_service()
         
         # Run search in executor to avoid blocking
         loop = asyncio.get_event_loop()
-        files = await loop.run_in_executor(None, drive_service_instance.search_files, query)
+        files = await loop.run_in_executor(None, drive.search_files, query)
         
         if not files:
             await message.edit_text(f"❌ No files found matching '{query}'.")
@@ -125,12 +129,12 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_path = file.get('path', '')
             display_name = f"{file_path}/{file['name']}" if file_path else file['name']
             
-            if drive_service_instance.is_folder(file):
+            if drive.is_folder(file):
                 keyboard.append([InlineKeyboardButton(f"📁 {display_name}", callback_data=f"folder|{file['id']}")])
             else:
                 # Use optimized icon detection
                 icon = get_file_icon(file['name'])
-                size = f" ({drive_service_instance.format_file_size(file.get('size'))})" if file.get('size') else ""
+                size = f" ({drive.format_file_size(file.get('size'))})" if file.get('size') else ""
                 
                 # Add button for file download
                 button_text = f"{icon} {file['name']}{size}"
@@ -492,13 +496,9 @@ You'll get a message when new content is added!
             message = await update.message.reply_text("📁 Fetching files from Google Drive...")
         
         try:
-            # Use global DriveService instance
-            global drive_service_instance
-            if drive_service_instance is None:
-                drive_service_instance = DriveService()
-            
-            drive = drive_service_instance
-            
+            # Use DriveService accessor
+            drive = get_drive_service()
+
             # Get files from the root folder (run in executor)
             loop = asyncio.get_event_loop()
             files = await loop.run_in_executor(None, drive.list_files)
@@ -639,12 +639,8 @@ You'll get a message when new content is added!
                 current_folder = context.user_data['nav_history'][-1]
                 folder_id = current_folder['id']
                 
-                # Use global DriveService instance
-                global drive_service_instance
-                if drive_service_instance is None:
-                    drive_service_instance = DriveService()
-                
-                drive = drive_service_instance
+                # Use DriveService accessor
+                drive = get_drive_service()
                 loop = asyncio.get_event_loop()
                 
                 # Get current page
@@ -885,12 +881,8 @@ You'll get a message when new content is added!
             context.user_data['current_page'] = 0
             
             try:
-                # Use global DriveService instance
-                global drive_service_instance
-                if drive_service_instance is None:
-                    drive_service_instance = DriveService()
-                
-                drive = drive_service_instance
+                # Use DriveService accessor
+                drive = get_drive_service()
                 loop = asyncio.get_event_loop()
                 
                 # Get folder info to show name (run in executor)
@@ -1062,11 +1054,7 @@ You'll get a message when new content is added!
                         
                         # Navigate to parent by calling folder logic directly
                         # Re-process as folder navigation
-                        global drive_service_instance
-                        if drive_service_instance is None:
-                            drive_service_instance = DriveService()
-                        
-                        drive = drive_service_instance
+                        drive = get_drive_service()
                         loop = asyncio.get_event_loop()
                         context.user_data['current_page'] = 0
                         context.user_data['nav_history'].append(parent)
@@ -1126,12 +1114,8 @@ You'll get a message when new content is added!
             await query.message.reply_text("📦 Creating ZIP archive... This may take a while for large folders.")
             
             try:
-                global drive_service_instance
-                if drive_service_instance is None:
-                    drive_service_instance = DriveService()
-                
-                drive = drive_service_instance
-                
+                drive = get_drive_service()
+
                 # Run blocking operations in executor to avoid blocking other users
                 loop = asyncio.get_event_loop()
                 folder_info = await loop.run_in_executor(None, drive.get_file_info, folder_id)
@@ -1258,11 +1242,7 @@ You'll get a message when new content is added!
             user_id = query.from_user.id
             
             try:
-                global drive_service_instance
-                if drive_service_instance is None:
-                    drive_service_instance = DriveService()
-                
-                drive = drive_service_instance
+                drive = get_drive_service()
                 loop = asyncio.get_event_loop()
                 file_info = await loop.run_in_executor(None, drive.get_file_info, file_id)
                 
@@ -1301,11 +1281,7 @@ You'll get a message when new content is added!
             user_id = query.from_user.id
             
             try:
-                global drive_service_instance
-                if drive_service_instance is None:
-                    drive_service_instance = DriveService()
-                
-                drive = drive_service_instance
+                drive = get_drive_service()
                 loop = asyncio.get_event_loop()
                 file_info = await loop.run_in_executor(None, drive.get_file_info, file_id)
                 
@@ -1357,11 +1333,7 @@ You'll get a message when new content is added!
             
             try:
                 # Use global DriveService instance
-                global drive_service_instance
-                if drive_service_instance is None:
-                    drive_service_instance = DriveService()
-                
-                drive = drive_service_instance
+                drive = get_drive_service()
                 successful = 0
                 failed = 0
                 
@@ -1447,11 +1419,7 @@ You'll get a message when new content is added!
             await query.message.reply_text(f"📦 Preparing ZIP file with {len(selected_items)} selected files...")
             
             try:
-                global drive_service_instance
-                if drive_service_instance is None:
-                    drive_service_instance = DriveService()
-                
-                drive = drive_service_instance
+                drive = get_drive_service()
                 loop = asyncio.get_event_loop()
                 
                 # Create ZIP in memory
@@ -1576,11 +1544,7 @@ You'll get a message when new content is added!
             await query.message.reply_text(f"📦 Preparing ZIP file with {len(selected_ids)} selected files...")
             
             try:
-                global drive_service_instance
-                if drive_service_instance is None:
-                    drive_service_instance = DriveService()
-                
-                drive = drive_service_instance
+                drive = get_drive_service()
                 loop = asyncio.get_event_loop()
                 
                 # Create ZIP in memory
@@ -1629,11 +1593,7 @@ You'll get a message when new content is added!
             user_id = query.from_user.id
             
             try:
-                global drive_service_instance
-                if drive_service_instance is None:
-                    drive_service_instance = DriveService()
-                
-                drive = drive_service_instance
+                drive = get_drive_service()
                 loop = asyncio.get_event_loop()
                 folder_info = await loop.run_in_executor(None, drive.get_file_info, folder_id)
                 
@@ -1673,11 +1633,7 @@ You'll get a message when new content is added!
             
             try:
                 # Use global DriveService instance
-                global drive_service_instance
-                if drive_service_instance is None:
-                    drive_service_instance = DriveService()
-                
-                drive = drive_service_instance
+                drive = get_drive_service()
                 loop = asyncio.get_event_loop()
                 file_info = await loop.run_in_executor(None, drive.get_file_info, file_id)
                 
@@ -2308,11 +2264,7 @@ You'll get a message when new content is added!
         search_query = ' '.join(context.args).lower()
         
         try:
-            global drive_service_instance
-            if drive_service_instance is None:
-                drive_service_instance = DriveService()
-            
-            drive = drive_service_instance
+            drive = get_drive_service()
             loop = asyncio.get_event_loop()
             
             # Get current folder ID from navigation history
