@@ -67,6 +67,12 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment guide.
 - [Development Checklist](TASK.md)
 - [Technical Structure](BOT_STRUCTURE.md)
 
+## Educational Content
+
+This repository also includes educational materials on computer science topics:
+
+- 📡 **[Networking: Ping Reduction Guide](educational_content/networking/)** - Learn how to create your own ping reducing app, understand network latency optimization, and explore VPN tunneling techniques. Includes practical Python examples and a working ping monitoring tool.
+
 ## Tech Stack
 
 - **Bot Framework**: python-telegram-bot
